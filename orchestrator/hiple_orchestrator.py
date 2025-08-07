@@ -194,11 +194,12 @@ class HipleOrchestrator:
                 if dep_id in completed_tasks:
                     result = completed_tasks[dep_id].result
                     dependency_results += f"【先行タスク{dep_id}の結果】:\n{result}\n\n"
-        rag_results = self.retrieval_service.search(task.description, k=3)
+        rag_results = self.retrieval_service.search(task.ssv_description, k=3) # SSVで検索
         return {
             "original_prompt": plan.original_prompt,
             "overall_goal": plan.overall_goal,
             "milestone": current_milestone,
+            "ssv_description": task.ssv_description, # SSVをコンテキストに追加
             "dependency_results": dependency_results,
             "rag_results": rag_results
         }
