@@ -1,9 +1,9 @@
 # path: ./orchestrator/hiple_orchestrator.py
-# title: Main Orchestrator using HRM for Simple Tasks
-# description: 単純なタスクの処理を、不安定なJambaから安定したHRMに切り替える司令塔。
+# title: Self-Correcting Orchestrator
+# description: 計画評価サービスと自己修正ループを導入した司令塔。
 
 import traceback
-from typing import Dict, List, Tuple, Any
+from typing import Dict, List, Tuple, Any, Optional
 from domain.model_manager import ModelManager
 from domain.schemas import SubTask, Plan, ExpertModel, Milestone
 from agents.planner_agent import PlannerAgent
@@ -11,11 +11,12 @@ from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
 from agents.router_agent import RouterAgent
 from services.retrieval_service import RetrievalService
+from services.plan_evaluation_service import PlanEvaluationService # 追加
 
 class HipleOrchestrator:
     """
     HiPLEアーキテクチャに基づき、思考プロセス全体を管理する。
-    RouterAgentを使い、タスクの複雑に応じて処理を振り分ける。
+    PlanEvaluationServiceを用いて計画を自己評価・修正する。
     """
     def __init__(
         self,
@@ -25,6 +26,7 @@ class HipleOrchestrator:
         reporter_agent: ReporterAgent,
         router_agent: RouterAgent,
         retrieval_service: RetrievalService,
+        plan_evaluation_service: PlanEvaluationService, # 追加
     ):
         self.model_manager = model_manager
         self.planner_agent = planner_agent
@@ -32,11 +34,12 @@ class HipleOrchestrator:
         self.reporter_agent = reporter_agent
         self.router_agent = router_agent
         self.retrieval_service = retrieval_service
+        self.plan_evaluation_service = plan_evaluation_service # 追加
+        self.max_replanning_attempts = 2 # 再計画の最大試行回数
 
     def process_task(self, prompt: str) -> str:
         """
         タスク処理のメインエントリーポイント。
-        まず要求の複雑さを判断し、適切な処理フローに分岐させる。
         """
         print(f"▶️ HiPLEタスク開始: {prompt}")
         try:
@@ -49,7 +52,7 @@ class HipleOrchestrator:
 
             if task_type == "simple":
                 return self._process_simple_task(prompt, active_experts)
-            else: # complex
+            else:
                 return self._process_complex_task(prompt, active_experts)
 
         except Exception as e:
@@ -61,43 +64,76 @@ class HipleOrchestrator:
         単純なタスクを直接実行する。
         """
         print("\n--- Direct Generation (using HRM for stability) ---")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # 不安定なJambaの代わりに、安定しているHRMを対話に使用する
         expert = self.model_manager.get_expert("HRM")
         if not expert:
             return "エラー: 単純応答用のエキスパート'HRM'が見つかりません。"
         
-        # HRMに対話的な応答を促すためのシンプルなシステムプロンプト
         expert.system_prompt = "あなたは、ユーザーの質問に誠実かつ簡潔に答える、優秀なAIアシスタントです。"
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
-        task = SubTask(task_id=1, description=prompt, expert_name=expert.name)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        task = SubTask(
+            task_id=1, 
+            description=prompt, 
+            expert_name=expert.name,
+            ssv_description=prompt
+        )
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         context = self._build_minimal_context(prompt)
         
         return self.generator_agent.execute(task, expert, context)
 
     def _process_complex_task(self, prompt: str, experts: List[ExpertModel]) -> str:
         """
-        複雑なタスクに対して、階層的な計画を立てて実行する。
+        複雑なタスクに対して、階層的な計画を立て、検証し、実行する。
         """
-        print("\n--- Phase 1: Hierarchical Planning (HiPLE-P) ---")
-        current_plan = self.planner_agent.execute(prompt, experts)
+        failed_plan: Optional[Plan] = None
+        validation_error: Optional[str] = None
         
-        print(f"L1 (Goal): {current_plan.overall_goal}")
-        for m in current_plan.milestones:
-            print(f"L2 (Milestone {m.milestone_id}): {m.title}")
-        
-        is_valid, error_msg = self._validate_plan(current_plan, experts)
-        if not is_valid:
-            print(f"⚠️ 計画の検証に失敗: {error_msg}。フォールバック処理に移行します。")
-            return self._process_simple_task(prompt, experts)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        for attempt in range(self.max_replanning_attempts):
+            print(f"\n--- Phase 1: Hierarchical Planning (Attempt {attempt + 1}) ---")
+            current_plan = self.planner_agent.execute(prompt, experts, failed_plan, validation_error)
+            
+            print(f"L1 (Goal): {current_plan.overall_goal}")
+            for m in current_plan.milestones:
+                print(f"L2 (Milestone {m.milestone_id}): {m.title}")
+            
+            # --- 計画の構造的・意味的検証 ---
+            is_struct_valid, struct_error = self._validate_plan_structure(current_plan, experts)
+            if not is_struct_valid:
+                print(f"⚠️ 計画の構造検証に失敗: {struct_error}")
+                validation_error = f"構造的エラー: {struct_error}"
+                failed_plan = current_plan
+                continue
 
-        self.retrieval_service.build_index(current_plan)
+            print("✅ 計画の構造は妥当です。")
+            
+            is_semantic_valid, semantic_error = self.plan_evaluation_service.check_semantic_coherence(current_plan.tasks)
+            if not is_semantic_valid:
+                print(f"⚠️ 計画の意味的一貫性検証に失敗: {semantic_error}")
+                validation_error = f"意味的一貫性エラー: {semantic_error}"
+                failed_plan = current_plan
+                continue
+            
+            print("✅ 計画の意味的一貫性は妥当です。")
+            
+            # --- 検証成功、実行フェーズへ ---
+            return self._execute_plan(current_plan, experts)
+
+        print(f"❌ {self.max_replanning_attempts}回の再計画の試行後も、有効な計画を作成できませんでした。")
+        return "エラー: 実行可能な計画を立案できませんでした。プロンプトを具体的にして再度お試しください。"
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    def _execute_plan(self, plan: Plan, experts: List[ExpertModel]) -> str:
+        """
+        検証済みの計画を実行する
+        """
+        self.retrieval_service.build_index(plan)
 
         print("\n--- Phase 2: Context-Aware Generation (HiPLE-G) ---")
         completed_tasks: Dict[int, SubTask] = {}
         
-        worker_tasks = [t for t in current_plan.tasks if t.expert_name.lower() != 'reporter']
+        worker_tasks = [t for t in plan.tasks if t.expert_name.lower() != 'reporter']
         
         while len(completed_tasks) < len(worker_tasks):
             executable_tasks = [t for t in worker_tasks if t.status == "pending" and all(d in completed_tasks for d in t.dependencies)]
@@ -110,13 +146,12 @@ class HipleOrchestrator:
             for task in executable_tasks:
                 expert = self.model_manager.get_expert(task.expert_name)
                 if not expert:
-                    print(f"⚠️ タスク {task.task_id} のエキスパート '{task.expert_name}' が見つかりません。スキップします。")
                     task.result = f"エラー: エキスパート '{task.expert_name}' が見つかりませんでした。"
                     task.status = "failed"
                     completed_tasks[task.task_id] = task
                     continue
                 
-                context = self._build_context_for_task(task, current_plan, completed_tasks)
+                context = self._build_context_for_task(task, plan, completed_tasks)
                 
                 print(f"\n▶️ Executing Task {task.task_id} ({task.expert_name.upper()}): {task.description}")
                 task.status = "in_progress"
@@ -125,19 +160,17 @@ class HipleOrchestrator:
                 completed_tasks[task.task_id] = task
                 print(f"✅ Task {task.task_id} Completed.")
 
-        reporter_tasks = [t for t in current_plan.tasks if t.expert_name.lower() == 'reporter']
+        reporter_tasks = [t for t in plan.tasks if t.expert_name.lower() == 'reporter']
         if reporter_tasks:
              print("\n--- Phase 3: Reporting ---")
-             final_report = self.reporter_agent.execute(current_plan, experts)
-             print("✅ 全てのタスクが正常に完了しました。")
+             final_report = self.reporter_agent.execute(plan, experts)
              return final_report
         else:
-            print("\n✅ 全てのタスクが正常に完了しました。")
             if not completed_tasks: return "タスクは実行されましたが、結果がありませんでした。"
             last_task = max(completed_tasks.values(), key=lambda t: t.task_id)
             return last_task.result or "完了しましたが結果がありません。"
 
-    def _validate_plan(self, plan: Plan, experts: List[ExpertModel]) -> Tuple[bool, str]:
+    def _validate_plan_structure(self, plan: Plan, experts: List[ExpertModel]) -> Tuple[bool, str]:
         if not plan.tasks: return False, "計画にタスクが含まれていません。"
         task_ids = {task.task_id for task in plan.tasks}
         milestone_ids = {m.milestone_id for m in plan.milestones}

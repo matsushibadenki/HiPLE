@@ -1,13 +1,16 @@
 # path: ./container/container.py
-# title: Finalized DI Container
-# description: WorkerManagerServiceをGeneratorAgentに注入する最終設定。
+# title: DI Container with PlanEvaluationService
+# description: PlanEvaluationServiceを追加し、Orchestratorに注入する設定。
 
 from dependency_injector import containers, providers
 from domain.model_manager import ModelManager
 from services.model_loader import ModelLoaderService
 from services.vectorization_service import VectorizationService
 from services.retrieval_service import RetrievalService
-from services.worker_manager import WorkerManagerService # 追加
+from services.worker_manager import WorkerManagerService
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from services.plan_evaluation_service import PlanEvaluationService
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from orchestrator.hiple_orchestrator import HipleOrchestrator
 from agents.planner_agent import PlannerAgent
 from agents.generator_agent import GeneratorAgent
@@ -28,7 +31,13 @@ class Container(containers.DeclarativeContainer):
         RetrievalService,
         vectorization_service=vectorization_service
     )
-    worker_manager = providers.Singleton(WorkerManagerService) # 追加
+    worker_manager = providers.Singleton(WorkerManagerService)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    plan_evaluation_service = providers.Singleton(
+        PlanEvaluationService,
+        vectorization_service=vectorization_service
+    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     model_manager = providers.Singleton(
         ModelManager,
@@ -41,13 +50,11 @@ class Container(containers.DeclarativeContainer):
         model_loader=model_loader
     )
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     generator_agent = providers.Factory(
         GeneratorAgent,
         model_loader=model_loader,
-        worker_manager=worker_manager # WorkerManagerを注入
+        worker_manager=worker_manager
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     reporter_agent = providers.Factory(
         ReporterAgent,
@@ -67,5 +74,8 @@ class Container(containers.DeclarativeContainer):
         generator_agent=generator_agent,
         reporter_agent=reporter_agent,
         router_agent=router_agent,
-        retrieval_service=retrieval_service
+        retrieval_service=retrieval_service,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        plan_evaluation_service=plan_evaluation_service
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     )

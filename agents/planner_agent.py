@@ -1,6 +1,6 @@
 # path: ./agents/planner_agent.py
-# title: Hierarchical PlannerAgent (HiPLE-P)
-# description: ユーザーの要求を分析し、階層的な実行計画（L1, L2, L3）を生成する。
+# title: Hierarchical PlannerAgent with Semantic Definition
+# description: ユーザーの要求を分析し、各タスクの意味構造(SSV)を含む階層的な実行計画を生成する。
 
 import json
 import re
@@ -46,52 +46,62 @@ class PlannerAgent(BaseAgent):
         raise ValueError("利用可能なプランナーエキスパートが見つかりません。")
 
     def _build_system_prompt(self, expert_descriptions: str) -> str:
-        return f"""あなたは、ユーザーの曖昧な要求を構造化された階層的計画に変換する、超優秀なAIプロジェクトマネージャーです。
+        # f-stringと複雑な複数行文字列の混在を避け、安全にプロンプトを構築する
+        prompt_header = """あなたは、ユーザーの曖昧な要求を構造化された階層的計画に変換する、超優秀なAIプロジェクトマネージャーです。
 
 # あなたのタスク
-ユーザーの要求を分析し、以下の3つのレベルで構成されるJSON形式の実行計画を立案してください。
+ユーザーの要求を分析し、以下のルールに従ってJSON形式の実行計画を立案してください。
 
-1.  **L1: 全体目標 (overall_goal)**: ユーザー要求の最終的なゴールを、一文で明確に定義します。
-2.  **L2: 主要マイルストーン (milestones)**: 全体目標を達成するための、論理的な中間ステップを複数定義します。各マイルストーンは「章」のようなものです。
-3.  **L3: 具体的なサブタスク (tasks)**: 各マイルストーンを達成するための、実行可能な具体的なタスクを定義します。各タスクには、最適なエキスパートを1名割り当てます。
+1.  **階層化**: 思考を3つのレベル（L1: 全体目標, L2: マイルストーン, L3: サブタスク）に分解します。
+2.  **意味構造の定義 (最重要)**: 各サブタスク（L3）には、そのタスクの本質的な意味を凝縮した短い説明文 `ssv_description` を必ず設定してください。これは後続のAIがタスクの意図を正確に理解するための「意味の核」となります。
+    - 良い例: `ユーザーの質問から重要なキーワードを抽出する`
+    - 悪い例: `テキスト処理`
+"""
 
-# 厳守すべきルール
-- **階層構造**: 必ず `overall_goal`, `milestones`, `tasks` の3階層で計画を作成してください。
-- **IDの連番**: `milestone_id` と `task_id` は必ず1から始まる連番にしてください。
-- **タスクとマイルストーンの紐付け**: 各タスクには、それが属する `milestone_id` を必ず設定してください。
-- **依存関係**: タスクの `dependencies` には、そのタスクが依存する先行タスクの `task_id` をリストで指定します。
-- **報告タスク**: 複雑な要求の場合、最後のマイルストーンの最後のタスクとして、必ず 'Reporter' を配置し、それまでの全タスクを統合して最終報告書を作成させてください。
-- **単純な要求**: 「こんにちは」のような単純な挨拶や質問の場合、マイルストーンは1つ、タスクも1つだけ生成します。Reporterは不要です。
-- **エキスパートの能力**: エキスパートは以下の能力しか持ちません。Web検索やリアルタイム情報の取得はできません。
+        experts_section = f"""
+# 利用可能なエキスパート
 {expert_descriptions}
+"""
 
-# 出力フォーマット (JSON形式のみ)
+        json_format_section = """
+# JSON出力フォーマット (厳守)
 ```json
-{{
+{
   "overall_goal": "（L1: ユーザー要求を一文で表現した最終目標）",
   "milestones": [
-    {{
+    {
       "milestone_id": 1,
       "title": "（L2: 最初のマイルストーンのタイトル）",
       "description": "（このマイルストーンの目的）"
-    }}
+    }
   ],
   "tasks": [
-    {{
+    {
       "task_id": 1,
       "milestone_id": 1,
       "description": "（L3: 実行すべき具体的なタスク内容）",
-      "expert_name": "（エキスパート名）",
+      "expert_name": "（担当エキスパート名）",
+      "ssv_description": "（タスクの意味の核を記述した短い説明文）",
       "dependencies": []
-    }}
+    }
   ]
-}}
-```"""
+}
+```
+"""
+
+        rules_section = """
+# ルール
+- **ID**: `milestone_id`と`task_id`は1から始まる連番にしてください。
+- **依存関係**: `dependencies`には先行タスクの`task_id`をリストで指定します。
+- **報告タスク**: 複雑な要求の場合、最後に'Reporter'を配置し、最終報告書を作成させてください。
+- **単純な要求**: 単純な挨拶や質問の場合、マイルストーンは1つ、タスクも1つだけ生成します。
+"""
+        return prompt_header + experts_section + json_format_section + rules_section
 
     def _build_user_prompt(self, prompt: str, validation_error: Optional[str], failed_plan: Optional[Plan]) -> str:
         user_prompt = f"以下のユーザー要求に対する階層的実行計画をJSON形式で作成してください:\n\n要求: \"{prompt}\""
         if validation_error:
-            user_prompt += f"\n\n# 警告\n前回の計画は検証エラーで失敗しました: {validation_error}\nこのエラーを修正し、正しい計画を立て直してください。"
+            user_prompt += f"\n\n#【最重要】前回の計画は以下の検証エラーで失敗しました。このエラーを完全に修正し、論理的に一貫した新しい計画を立て直してください。\nエラー内容: {validation_error}"
         if failed_plan:
             user_prompt += f"\n\n# 警告\n前回の計画は実行に失敗しました。内容を根本的に見直し、新しいアプローチで計画を立て直してください。"
         return user_prompt
@@ -112,7 +122,15 @@ class PlannerAgent(BaseAgent):
             plan_data = json.loads(plan_json_str)
 
             milestones = [Milestone(**m) for m in plan_data.get("milestones", [])]
-            tasks = [SubTask(**t) for t in plan_data.get("tasks", [])]
+            tasks_data = plan_data.get("tasks", [])
+            if not tasks_data: # tasksが空の場合のフォールバック
+                 raise ValueError("計画にタスクが含まれていません。")
+
+            for t in tasks_data:
+                if "ssv_description" not in t:
+                    t["ssv_description"] = t["description"] # SSVがない場合はdescriptionで代用
+
+            tasks = [SubTask(**t) for t in tasks_data]
 
             return Plan(
                 original_prompt=original_prompt,
@@ -128,6 +146,7 @@ class PlannerAgent(BaseAgent):
                 milestone_id=1,
                 description=original_prompt,
                 expert_name=planner_expert.name,
+                ssv_description=original_prompt, # フォールバックでもSSVを設定
                 dependencies=[]
             )
             milestone = Milestone(milestone_id=1, title="Direct Execution", description="Execute the user's prompt directly.")

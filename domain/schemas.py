@@ -1,10 +1,11 @@
 # path: ./domain/schemas.py
-# title: Data Schemas with Execution Strategy
-# description: 実行戦略を保持するフィールドをExpertModelに追加する。
+# title: Data Schemas with Semantic Structure Vector
+# description: 実行戦略に加え、意味構造ベクトル(SSV)を保持するフィールドをSubTaskに追加。
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Any, Union, TYPE_CHECKING
 from llama_cpp import Llama
+import numpy as np
 
 if TYPE_CHECKING:
     from diffusers import DiffusionPipeline
@@ -20,9 +21,7 @@ class ExpertModel:
     model_id: Optional[str]
     chat_format: str
     system_prompt: str
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     execution_strategy: str = "inline" # "inline" or "worker"
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     enabled: bool = False
     keywords: List[str] = field(default_factory=list)
     instance: Optional[Union[Llama, "DiffusionPipeline"]] = None
@@ -36,10 +35,14 @@ class SubTask:
     task_id: int
     description: str
     expert_name: str
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    ssv_description: str # 意味構造を記述した短いテキスト
+    # ◾️◾️◾️◾️◾◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     dependencies: List[int] = field(default_factory=list)
     result: Optional[str] = None
     status: str = "pending"
     milestone_id: Optional[int] = None
+
 
 @dataclass
 class Milestone:

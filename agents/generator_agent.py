@@ -1,6 +1,6 @@
 # path: ./agents/generator_agent.py
-# title: GeneratorAgent with Execution Strategy
-# description: エキスパートの実行戦略に応じて、インライン実行とワーカー実行を切り替える。
+# title: GeneratorAgent with Execution Strategy and Image Generation
+# description: エキスパートの実行戦略に応じてタスクを実行するエージェント。画像生成機能を完全に実装。
 
 import os
 import uuid
@@ -8,8 +8,8 @@ import traceback
 from typing import List, Dict, Any, cast, Optional
 from llama_cpp.llama_types import ChatCompletionRequestMessage
 from domain.schemas import SubTask, ExpertModel, Milestone
-from services.model_loader import ModelLoaderService # 修正
-from services.worker_manager import WorkerManagerService, WorkerExecutionError # 修正
+from services.model_loader import ModelLoaderService
+from services.worker_manager import WorkerManagerService, WorkerExecutionError
 from agents.base_agent import BaseAgent
 from diffusers import DiffusionPipeline
 
@@ -17,11 +17,9 @@ class GeneratorAgent(BaseAgent):
     """
     エキスパートの実行戦略に応じてタスクを実行するエージェント (HiPLE-G)
     """
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def __init__(self, model_loader: ModelLoaderService, worker_manager: WorkerManagerService):
         super().__init__(model_loader)
         self.worker_manager = worker_manager
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def execute(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any]) -> str:
         
@@ -30,7 +28,6 @@ class GeneratorAgent(BaseAgent):
         
         messages = self._build_messages_with_context(task, expert, context)
 
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         try:
             if expert.execution_strategy == "worker":
                 print(f"🔩 ワーカープロセス経由で '{expert.name}' を実行します。")
@@ -41,7 +38,8 @@ class GeneratorAgent(BaseAgent):
                     "message" in response_data["choices"][0] and
                     "content" in response_data["choices"][0]["message"]
                 ):
-                    return response_data["choices"][0]["message"]["content"].strip()
+                    content = response_data["choices"][0]["message"]["content"]
+                    return content.strip() if content else ""
                 else:
                     raise WorkerExecutionError(f"ワーカーからの応答形式が不正です: {response_data}")
             else:
@@ -50,7 +48,6 @@ class GeneratorAgent(BaseAgent):
         except WorkerExecutionError as e:
             print(f"❌ ワーカーの実行に失敗しました: {e}")
             return f"エキスパート '{expert.name}' の実行中にエラーが発生しました。"
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _build_messages_with_context(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any]) -> List[ChatCompletionRequestMessage]:
         milestone: Optional[Milestone] = context.get('milestone')
@@ -61,8 +58,27 @@ class GeneratorAgent(BaseAgent):
                 {"role": "user", "content": task.description}
             ]
         
-        user_prompt = f"""# 全体目標 (L1)\n{context.get('overall_goal')} ...""" # 省略
-        # ... (既存のプロンプト構築ロジックは変更なし)
+        dependency_results = context.get("dependency_results", "")
+        rag_results_list = context.get("rag_results", [])
+        rag_results_str = "\n".join([f"- {r.get('content', '')}" for r in rag_results_list])
+
+        user_prompt = f"""# 全体目標 (L1)
+{context.get('overall_goal', 'N/A')}
+
+# 現在のマイルストーン (L2)
+タイトル: {milestone.title if milestone else 'N/A'}
+説明: {milestone.description if milestone else 'N/A'}
+
+# 先行タスクからのコンテキスト
+{dependency_results if dependency_results else "先行タスクはありません。"}
+
+# 関連情報 (RAG)
+{rag_results_str if rag_results_str else "関連情報はありません。"}
+
+# あなたのタスク (L3)
+以上の全てのコンテキストを踏まえ、以下のタスクを実行してください:
+「{task.description}」
+"""
         
         return [
             {"role": "system", "content": expert.system_prompt},
@@ -70,5 +86,35 @@ class GeneratorAgent(BaseAgent):
         ]
 
     def _generate_image(self, expert: ExpertModel, prompt: str) -> str:
-        # ... (変更なし)
-        return ""
+        """
+        拡散モデルを使用して画像を生成し、ファイルパスを文字列として返す。
+        """
+        print(f"🎨 拡散モデル '{expert.name}' を使用して画像を生成します...")
+        try:
+            # model_loaderを使用して、設定に基づき拡散モデルのパイプラインをロード
+            pipe = cast(DiffusionPipeline, self.model_loader.load_expert(expert))
+            
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 画像を生成
+            # mypyがDiffusionPipelineが呼び出し可能でないと誤認するため、型チェックを無視
+            image = pipe(prompt=prompt).images[0] # type: ignore[operator]
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            
+            # 出力ディレクトリを作成
+            output_dir = "output/images"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # ユニークなファイル名を生成して保存
+            filename = f"{uuid.uuid4()}.png"
+            output_path = os.path.join(output_dir, filename)
+            image.save(output_path)
+            
+            absolute_path = os.path.abspath(output_path)
+            print(f"🖼️ 画像を保存しました: {absolute_path}")
+            return f"画像を {absolute_path} に生成しました。"
+
+        except Exception as e:
+            error_message = f"エラー: 画像の生成に失敗しました - {e}"
+            print(f"❌ {error_message}")
+            traceback.print_exc()
+            return error_message
