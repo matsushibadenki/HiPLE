@@ -8,7 +8,7 @@ HiPLE (Hierarchical Predictive Language Engine) は、単一の巨大モデル�
 
 ## **2\. ロードマップ全体像**
 
-```
+```mermaid
 gantt  
     title HiPLE Development Roadmap  
     dateFormat  YYYY-MM-DD  
