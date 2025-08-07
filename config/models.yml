@@ -1,0 +1,60 @@
+# path: ./config/models.yml
+# title: AI Expert Definition with Execution Strategy
+# description: Jambaを再度有効化し、新しい実行戦略(worker)を定義する。
+
+worker_experts:
+  jamba:
+    name: "Jamba"
+    description: "ユーザーとの対話、創造的な文章生成、タスク計画の立案など、幅広いコミュニケーションタスクを担当する汎用エキスパート。"
+    model_path_env: "JAMBA_MODEL_PATH"
+    chat_format: "chatml"
+    system_prompt: "あなたは、誠実で優秀なAIアシスタントです。"
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    enabled: true # このエキスパートを再度有効化
+    execution_strategy: "worker" # 実行戦略を「ワーカープロセス」に指定
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+  reporter:
+    name: "Reporter"
+    description: "全エキスパートの成果を統合し、首尾一貫した最終報告書を作成するテクニカルライター。"
+    model_path_env: "HRM_MODEL_PATH"
+    chat_format: "chatml"
+    system_prompt: "あなたは優秀なテクニカルライターです。提供された全タスクの結果を元に、ユーザーの元の要求に対する包括的で分かりやすい最終報告書を作成してください。"
+    enabled: true
+    execution_strategy: "inline" # デフォルトの実行戦略
+
+  liquids4:
+    name: "LiquidS4"
+    description: "長文の読解、要約、分析、そして長期的な文脈の記憶保持を得意とするエキスパート。"
+    model_path_env: "LIQUIDS4_MODEL_PATH"
+    chat_format: "llama-2"
+    system_prompt: "You are an expert in summarizing and analyzing long texts. Provide a clear, concise, and logical summary."
+    enabled: false
+    execution_strategy: "inline"
+
+  hrm:
+    name: "HRM"
+    description: "複雑な論理パズル、計画立案、ステップバイステップの推論を得意とするエキスパート。システムの主要な思考エンジンとして機能する。"
+    model_path_env: "HRM_MODEL_PATH"
+    chat_format: "chatml"
+    system_prompt: "You are a logical reasoner. Think step by step to solve the problem."
+    enabled: true
+    execution_strategy: "inline"
+
+  transformer:
+    name: "Transformer"
+    description: "コーディング、プログラミング、具体的な関数の実装を得意とするエキスパート。"
+    model_path_env: "TRANSFORMER_MODEL_PATH"
+    chat_format: "gemma"
+    system_prompt: "You are a helpful and intelligent assistant for coding. Provide clean, efficient, and well-commented code."
+    enabled: true
+    execution_strategy: "inline"
+
+  visualizer:
+    name: "Visualizer"
+    description: "テキスト記述（プロンプト）から高品質な画像を生成する視覚化のエキスパート。"
+    model_id: "stabilityai/stable-diffusion-xl-base-1.0"
+    chat_format: "diffusion"
+    system_prompt: "You are a creative visualizer. Generate an image based on the user's prompt."
+    enabled: true
+    execution_strategy: "inline"

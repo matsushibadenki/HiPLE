@@ -1,0 +1,19 @@
+# /hybrid_llm_system/pyproject.toml
+# mypyを含むプロジェクト全体の設定ファイル
+
+[tool.mypy]
+python_version = "3.10"
+
+# --- "Source file found twice" エラーを解決するための設定 ---
+# この設定は、mypyがパッケージの起点（ベース）をどのように認識するかを明確にし、
+# インポートパスの曖昧さを解消します。
+explicit_package_bases = true
+namespace_packages = true
+# -----------------------------------------------------------
+
+# 推奨される標準的な設定
+warn_return_any = true
+warn_unused_configs = true
+
+# 型定義ファイル（スタブ）が見つからないライブラリについての警告を無視します。
+ignore_missing_imports = true
