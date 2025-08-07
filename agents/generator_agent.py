@@ -62,6 +62,8 @@ class GeneratorAgent(BaseAgent):
         rag_results_list = context.get("rag_results", [])
         rag_results_str = "\n".join([f"- {r.get('content', '')}" for r in rag_results_list])
 
+        ssv_description = context.get('ssv_description', task.description)
+
         user_prompt = f"""# 全体目標 (L1)
 {context.get('overall_goal', 'N/A')}
 
@@ -76,8 +78,16 @@ class GeneratorAgent(BaseAgent):
 {rag_results_str if rag_results_str else "関連情報はありません。"}
 
 # あなたのタスク (L3)
-以上の全てのコンテキストを踏まえ、以下のタスクを実行してください:
-「{task.description}」
+以上の全てのコンテキストを踏まえ、以下のタスクを実行してください。
+
+## タスクの核心 (SSV)
+**このタスクで最も重要な目的は「{ssv_description}」を達成することです。**
+
+## タスクの詳細
+{task.description}
+
+---
+上記の核心（SSV）を最優先し、詳細情報を参考にしながら、具体的で質の高い成果物を生成してください。
 """
         
         return [
