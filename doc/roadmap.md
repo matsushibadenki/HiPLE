@@ -8,6 +8,7 @@ HiPLE (Hierarchical Predictive Language Engine) は、単一の巨大モデル�
 
 ## **2\. ロードマップ全体像**
 
+```
 gantt  
     title HiPLE Development Roadmap  
     dateFormat  YYYY-MM-DD  
@@ -28,6 +29,7 @@ gantt
     動的エキスパート評価・選択 (Dynamic Expert Selection) :p3\_1, after p2\_3, 4m  
     自己成長型プランニング (Self-Improving Planner)    :p3\_2, after p3\_1, 6m  
     エコシステムの拡張 (Ecosystem Expansion)         :p3\_3, after p3\_2, 6m
+```
 
 ## **Phase 1: 基盤強化と対話的進化 (Core Functionality & Interactive Evolution)**
 
