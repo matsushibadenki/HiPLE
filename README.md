@@ -19,7 +19,7 @@
 
 ## **2\. システムアーキテクチャ**
 
-```mermaid
+```Mermaid
 graph TD  
     A\[User Prompt\] \--\> P\[HiPLE-P Planner Agent\]  
       
