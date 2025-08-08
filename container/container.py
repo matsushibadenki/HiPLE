@@ -1,6 +1,6 @@
 # path: ./container/container.py
-# title: DI Container with ConsultantAgent
-# description: ConsultantAgentを追加し、GeneratorAgentに注入する設定。
+# title: DI Container with Tool-Use Agents
+# description: WikipediaAgentとToolRouterAgentをDIコンテナに追加する。
 
 from dependency_injector import containers, providers
 from domain.model_manager import ModelManager
@@ -13,9 +13,10 @@ from orchestrator.hiple_orchestrator import HipleOrchestrator
 from agents.planner_agent import PlannerAgent
 from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
-from agents.router_agent import RouterAgent
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from agents.consultant_agent import ConsultantAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from agents.tool_router_agent import ToolRouterAgent
+from agents.wikipedia_agent import WikipediaAgent
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class Container(containers.DeclarativeContainer):
@@ -49,7 +50,6 @@ class Container(containers.DeclarativeContainer):
         model_loader=model_loader
     )
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     consultant_agent = providers.Factory(
         ConsultantAgent,
         model_loader=model_loader
@@ -61,17 +61,23 @@ class Container(containers.DeclarativeContainer):
         worker_manager=worker_manager,
         consultant_agent=consultant_agent
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     
     reporter_agent = providers.Factory(
         ReporterAgent,
         model_loader=model_loader
     )
     
-    router_agent = providers.Factory(
-        RouterAgent,
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    tool_router_agent = providers.Factory(
+        ToolRouterAgent,
         model_loader=model_loader
     )
+
+    wikipedia_agent = providers.Factory(
+        WikipediaAgent,
+        model_loader=model_loader # 引数は必須だが実際には使われない
+    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- Orchestrator ---
     hiple_orchestrator = providers.Factory(
@@ -80,7 +86,10 @@ class Container(containers.DeclarativeContainer):
         planner_agent=planner_agent,
         generator_agent=generator_agent,
         reporter_agent=reporter_agent,
-        router_agent=router_agent,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        tool_router_agent=tool_router_agent,
+        wikipedia_agent=wikipedia_agent,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         retrieval_service=retrieval_service,
         plan_evaluation_service=plan_evaluation_service
     )

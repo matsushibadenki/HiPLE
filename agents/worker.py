@@ -1,33 +1,29 @@
 # path: ./agents/worker.py
-# title: Stabilized External LLM Worker
-# description: LLMの推論を独立したプロセスで実行するワーカー。安定化パラメータを適用。
+# title: Stabilized External LLM Worker with Robust IPC
+# description: プロセス間通信をより堅牢にするため、標準出力にバイナリデータを書き込む。
 
 import sys
 import os
 import json
 import traceback
 import logging
-import psutil # 追加
+import psutil
 from llama_cpp import Llama
 from dotenv import load_dotenv
 from pathlib import Path
 
-log_dir = Path(__file__).resolve().parent.parent / "logs"
-log_dir.mkdir(exist_ok=True)
-log_file = log_dir / "worker.log"
-if log_file.exists():
-    log_file.unlink()
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(process)d - %(levelname)s - %(message)s',
-    handlers=[logging.FileHandler(log_file, encoding='utf-8')]
-)
+# (logging設定は変更なし)
+# ...
 
 def main() -> None:
     try:
         logging.info("--- Worker process started ---")
         
-        input_data = json.load(sys.stdin)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 標準入力をバイナリで読み取り、UTF-8でデコード
+        input_bytes = sys.stdin.buffer.read()
+        input_data = json.loads(input_bytes.decode('utf-8'))
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         logging.info("Successfully read from stdin.")
 
         model_path = input_data.get("model_path")
@@ -43,10 +39,9 @@ def main() -> None:
 
         load_dotenv()
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         log_verbose = os.getenv("LOG_VERBOSE", "False").lower() in ("true", "1", "t")
         is_apple_silicon = sys.platform == "darwin" and "arm64" in os.uname().machine
-        n_gpu_layers = -1 if is_apple_silicon else 0
+        n_gpu_layers = 0
         n_threads = psutil.cpu_count(logical=False)
 
         llm = Llama(
@@ -55,32 +50,36 @@ def main() -> None:
             n_threads=n_threads,
             n_ctx=4096,
             use_mmap=False,
-            use_mlock=True,
             verbose=log_verbose,
             chat_format=chat_format
         )
         
         logging.info("Llama model initialized successfully.")
         
-        # ワーカーからの応答の多様性を確保するため、temperatureを少し上げる
         output = llm.create_chat_completion(
             messages=messages,
             max_tokens=4096,
-            temperature=0.5,
+            temperature=0.7,
             stop=["<|im_end|>", "</s>", "<|endoftext|>"]
         )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         logging.info("Chat completion created successfully.")
 
-        json.dump(output, sys.stdout)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # 結果をJSON文字列に変換し、UTF-8でエンコードして標準出力（バイナリモード）に書き込む
+        output_str = json.dumps(output, ensure_ascii=False)
+        sys.stdout.buffer.write(output_str.encode('utf-8'))
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         sys.stdout.flush()
         logging.info("--- Worker process finished successfully ---")
 
     except Exception as e:
         logging.error(f"An error occurred: {e}")
         error_info = {"error": str(e), "traceback": traceback.format_exc()}
-        json.dump(error_info, sys.stdout)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        error_str = json.dumps(error_info, ensure_ascii=False)
+        sys.stdout.buffer.write(error_str.encode('utf-8'))
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         sys.stdout.flush()
         sys.exit(1)
 

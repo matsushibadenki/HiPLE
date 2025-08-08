@@ -1,6 +1,6 @@
 # path: ./config/models.yml
-# title: AI Expert Definition with Execution Strategy
-# description: Jambaを再度有効化し、新しい実行戦略(worker)を定義する。
+# title: AI Expert Definition with Stabilized Execution Strategy
+# description: Jambaの実行戦略を'inline'に変更し、不安定なワーカープロセスを回避する。
 
 worker_experts:
   jamba:
@@ -9,9 +9,9 @@ worker_experts:
     model_path_env: "JAMBA_MODEL_PATH"
     chat_format: "chatml"
     system_prompt: "あなたは、誠実で優秀なAIアシスタントです。"
+    enabled: true
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    enabled: true # このエキスパートを再度有効化
-    execution_strategy: "worker" # 実行戦略を「ワーカープロセス」に指定
+    execution_strategy: "inline" # 不安定なワーカープロセスを回避し、インライン実行に切り替える
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
   reporter:
@@ -21,7 +21,7 @@ worker_experts:
     chat_format: "chatml"
     system_prompt: "あなたは優秀なテクニカルライターです。提供された全タスクの結果を元に、ユーザーの元の要求に対する包括的で分かりやすい最終報告書を作成してください。"
     enabled: true
-    execution_strategy: "inline" # デフォルトの実行戦略
+    execution_strategy: "inline"
 
   liquids4:
     name: "LiquidS4"

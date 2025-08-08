@@ -1,14 +1,12 @@
 # path: ./services/worker_manager.py
-# title: External Worker Manager Service with Timeout
-# description: LLMや拡散モデルのワーカープロセスを管理・実行するサービス。タイムアウト機構を持つ。
+# title: External Worker Manager Service with Robust IPC
+# description: プロセス間通信をより堅牢にするため、バイナリでデータを受け取り、明示的にUTF-8でデコードする。
 
 import sys
 import json
 import subprocess
 import traceback
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from typing import List, Any, Dict, cast
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from domain.schemas import ExpertModel
 from llama_cpp.llama_types import ChatCompletionRequestMessage
 import torch
@@ -37,22 +35,22 @@ class WorkerManagerService:
 
         try:
             python_executable = sys.executable
-            # タイムアウト（秒）を設定。モデルのロードと推論時間を考慮して長めに設定。
             timeout_seconds = 180 
 
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             process = subprocess.run(
                 [python_executable, "-m", "agents.worker"],
-                input=json.dumps(payload),
+                input=json.dumps(payload, ensure_ascii=False).encode('utf-8'), # 明示的にUTF-8でエンコード
                 capture_output=True,
-                text=True,
                 check=True,
-                encoding='utf-8',
                 timeout=timeout_seconds
+                # text=True と encoding='utf-8' を削除し、バイナリでやり取りする
             )
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            response_data = cast(Dict[str, Any], json.loads(process.stdout))
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # ワーカーからの標準出力をUTF-8でデコードしてからJSONとしてパース
+            response_str = process.stdout.decode('utf-8')
+            response_data = cast(Dict[str, Any], json.loads(response_str))
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             if "error" in response_data:
                 raise WorkerExecutionError(f"ワーカープロセスでエラーが発生しました: {response_data['error']}\nTrace: {response_data.get('traceback', '')}")
@@ -68,7 +66,11 @@ class WorkerManagerService:
         except FileNotFoundError:
             raise WorkerExecutionError(f"ワーカープロセス '{python_executable} -m agents.worker' を実行できません。パスを確認してください。")
         except subprocess.CalledProcessError as e:
-            raise WorkerExecutionError(f"ワーカープロセスの実行に失敗しました。\nStderr: {e.stderr}")
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # エラー出力もデコードして表示
+            stderr_str = e.stderr.decode('utf-8') if e.stderr else "No stderr"
+            raise WorkerExecutionError(f"ワーカープロセスの実行に失敗しました。\nStderr: {stderr_str}")
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         except json.JSONDecodeError as e:
             raise WorkerExecutionError(f"ワーカーからの応答がJSON形式ではありませんでした。Raw output: {e.doc}")
         except Exception as e:

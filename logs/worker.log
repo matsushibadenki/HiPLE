@@ -1,0 +1,6 @@
+2025-08-08 11:43:52,942 - 15639 - INFO - --- Worker process started ---
+2025-08-08 11:43:52,942 - 15639 - INFO - Successfully read from stdin.
+2025-08-08 11:43:52,942 - 15639 - INFO - Model path: ./model_files/AI21-Jamba-Mini-1.7.i1-IQ1_S.gguf
+2025-08-08 11:43:56,425 - 15639 - INFO - Llama model initialized successfully.
+2025-08-08 11:44:06,757 - 15639 - INFO - Chat completion created successfully.
+2025-08-08 11:44:06,758 - 15639 - INFO - --- Worker process finished successfully ---

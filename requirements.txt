@@ -34,3 +34,10 @@ faiss-cpu
 
 # ベクトル類似度計算用
 scikit-learn
+
+# --- Web Browser Agent用ライブラリ ---
+playwright
+beautifulsoup4
+
+# --- Wikipedia Agent用ライブラリ ---
+wikipedia
