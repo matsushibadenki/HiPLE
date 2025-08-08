@@ -1,6 +1,6 @@
 # path: ./agents/generator_agent.py
-# title: GeneratorAgent with Execution Strategy and Image Generation
-# description: エキスパートの実行戦略に応じてタスクを実行するエージェント。画像生成機能を完全に実装。
+# title: GeneratorAgent with Consultation and Execution Strategy
+# description: 必要に応じてコンサルテーションを行い、エキスパートの実行戦略に応じてタスクを実行するエージェント。
 
 import os
 import uuid
@@ -11,22 +11,37 @@ from domain.schemas import SubTask, ExpertModel, Milestone
 from services.model_loader import ModelLoaderService
 from services.worker_manager import WorkerManagerService, WorkerExecutionError
 from agents.base_agent import BaseAgent
+from agents.consultant_agent import ConsultantAgent
 from diffusers import DiffusionPipeline
 
 class GeneratorAgent(BaseAgent):
     """
     エキスパートの実行戦略に応じてタスクを実行するエージェント (HiPLE-G)
+    必要に応じてコンサルテーションを行う。
     """
-    def __init__(self, model_loader: ModelLoaderService, worker_manager: WorkerManagerService):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    def __init__(self, model_loader: ModelLoaderService, worker_manager: WorkerManagerService, consultant_agent: ConsultantAgent):
         super().__init__(model_loader)
         self.worker_manager = worker_manager
+        self.consultant_agent = consultant_agent
 
-    def execute(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any]) -> str:
+    def execute(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any], all_experts: List[ExpertModel]) -> str:
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         if expert.chat_format == "diffusion":
             return self._generate_image(expert, task.description)
         
-        messages = self._build_messages_with_context(task, expert, context)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        consultation_feedback = ""
+        if task.consultation_experts:
+            consultation_feedback = self.consultant_agent.execute(
+                original_task=task,
+                primary_expert=expert,
+                all_experts=all_experts
+            )
+        
+        messages = self._build_messages_with_context(task, expert, context, consultation_feedback)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         try:
             if expert.execution_strategy == "worker":
@@ -49,7 +64,15 @@ class GeneratorAgent(BaseAgent):
             print(f"❌ ワーカーの実行に失敗しました: {e}")
             return f"エキスパート '{expert.name}' の実行中にエラーが発生しました。"
 
-    def _build_messages_with_context(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any]) -> List[ChatCompletionRequestMessage]:
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    def _build_messages_with_context(
+        self,
+        task: SubTask,
+        expert: ExpertModel,
+        context: Dict[str, Any],
+        consultation_feedback: str = ""
+    ) -> List[ChatCompletionRequestMessage]:
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         milestone: Optional[Milestone] = context.get('milestone')
         
         if milestone and milestone.title == "Direct Task":
@@ -64,6 +87,7 @@ class GeneratorAgent(BaseAgent):
 
         ssv_description = context.get('ssv_description', task.description)
 
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         user_prompt = f"""# 全体目標 (L1)
 {context.get('overall_goal', 'N/A')}
 
@@ -77,8 +101,11 @@ class GeneratorAgent(BaseAgent):
 # 関連情報 (RAG)
 {rag_results_str if rag_results_str else "関連情報はありません。"}
 
+# 専門家からの助言 (コンサルテーション)
+{consultation_feedback if consultation_feedback else "特になし。"}
+
 # あなたのタスク (L3)
-以上の全てのコンテキストを踏まえ、以下のタスクを実行してください。
+以上の全てのコンテキストと専門家の助言を踏まえ、以下のタスクを実行してください。
 
 ## タスクの核心 (SSV)
 **このタスクで最も重要な目的は「{ssv_description}」を達成することです。**
@@ -87,8 +114,9 @@ class GeneratorAgent(BaseAgent):
 {task.description}
 
 ---
-上記の核心（SSV）を最優先し、詳細情報を参考にしながら、具体的で質の高い成果物を生成してください。
+上記の核心（SSV）と専門家の助言を最優先し、詳細情報を参考にしながら、具体的で質の高い成果物を生成してください。
 """
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         return [
             {"role": "system", "content": expert.system_prompt},
@@ -104,11 +132,9 @@ class GeneratorAgent(BaseAgent):
             # model_loaderを使用して、設定に基づき拡散モデルのパイプラインをロード
             pipe = cast(DiffusionPipeline, self.model_loader.load_expert(expert))
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             # 画像を生成
             # mypyがDiffusionPipelineが呼び出し可能でないと誤認するため、型チェックを無視
             image = pipe(prompt=prompt).images[0] # type: ignore[operator]
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             
             # 出力ディレクトリを作成
             output_dir = "output/images"

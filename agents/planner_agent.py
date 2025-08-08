@@ -1,6 +1,6 @@
 # path: ./agents/planner_agent.py
-# title: Hierarchical PlannerAgent with Semantic Definition
-# description: ユーザーの要求を分析し、各タスクの意味構造(SSV)を含む階層的な実行計画を生成する。
+# title: Hierarchical PlannerAgent with Consultation Step
+# description: タスクの複雑さに応じて、他のエキスパートへの相談(consultation)を含む階層的な計画を生成する。
 
 import json
 import re
@@ -54,8 +54,7 @@ class PlannerAgent(BaseAgent):
 
 1.  **階層化**: 思考を3つのレベル（L1: 全体目標, L2: マイルストーン, L3: サブタスク）に分解します。
 2.  **意味構造の定義 (最重要)**: 各サブタスク（L3）には、そのタスクの本質的な意味を凝縮した短い説明文 `ssv_description` を必ず設定してください。これは後続のAIがタスクの意図を正確に理解するための「意味の核」となります。
-    - 良い例: `ユーザーの質問から重要なキーワードを抽出する`
-    - 悪い例: `テキスト処理`
+3.  **コンサルテーション**: タスクの品質向上のため、複数の専門知識が必要だと判断した場合、`consultation_experts`フィールドに助言を求めるべきエキスパート名のリストを指定してください。例えば、コーディングと画像生成が絡むタスクでは、主担当を'Transformer'とし、'Visualizer'に助言を求めることができます。
 """
 
         experts_section = f"""
@@ -82,6 +81,7 @@ class PlannerAgent(BaseAgent):
       "description": "（L3: 実行すべき具体的なタスク内容）",
       "expert_name": "（担当エキスパート名）",
       "ssv_description": "（タスクの意味の核を記述した短い説明文）",
+      "consultation_experts": ["（助言を求めるエキスパート名1）", "（助言を求めるエキスパート名2）"],
       "dependencies": []
     }
   ]
@@ -94,7 +94,7 @@ class PlannerAgent(BaseAgent):
 - **ID**: `milestone_id`と`task_id`は1から始まる連番にしてください。
 - **依存関係**: `dependencies`には先行タスクの`task_id`をリストで指定します。
 - **報告タスク**: 複雑な要求の場合、最後に'Reporter'を配置し、最終報告書を作成させてください。
-- **単純な要求**: 単純な挨拶や質問の場合、マイルストーンは1つ、タスクも1つだけ生成します。
+- **単純な要求**: 単純な挨拶や質問の場合、マイルストーンは1つ、タスクも1つだけ生成し、`consultation_experts`は空のリスト`[]`にします。
 """
         return prompt_header + experts_section + json_format_section + rules_section
 
@@ -129,6 +129,9 @@ class PlannerAgent(BaseAgent):
             for t in tasks_data:
                 if "ssv_description" not in t:
                     t["ssv_description"] = t["description"] # SSVがない場合はdescriptionで代用
+                if "consultation_experts" not in t:
+                    t["consultation_experts"] = [] # consultation_expertsがない場合は空リストで代用
+
 
             tasks = [SubTask(**t) for t in tasks_data]
 
@@ -147,6 +150,7 @@ class PlannerAgent(BaseAgent):
                 description=original_prompt,
                 expert_name=planner_expert.name,
                 ssv_description=original_prompt, # フォールバックでもSSVを設定
+                consultation_experts=[],
                 dependencies=[]
             )
             milestone = Milestone(milestone_id=1, title="Direct Execution", description="Execute the user's prompt directly.")

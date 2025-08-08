@@ -1,6 +1,6 @@
 # path: ./domain/schemas.py
-# title: Data Schemas with Semantic Structure Vector
-# description: 実行戦略に加え、意味構造ベクトル(SSV)を保持するフィールドをSubTaskに追加。
+# title: Data Schemas with Consultation Experts
+# description: SubTaskに、相談相手のエキスパート(consultation_experts)を保持するフィールドを追加。
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Any, Union, TYPE_CHECKING
@@ -35,9 +35,10 @@ class SubTask:
     task_id: int
     description: str
     expert_name: str
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     ssv_description: str # 意味構造を記述した短いテキスト
-    # ◾️◾️◾️◾️◾◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    consultation_experts: List[str] = field(default_factory=list) # 相談相手のエキスパート名リスト
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     dependencies: List[int] = field(default_factory=list)
     result: Optional[str] = None
     status: str = "pending"

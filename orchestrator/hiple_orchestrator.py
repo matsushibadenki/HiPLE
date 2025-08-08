@@ -1,6 +1,6 @@
 # path: ./orchestrator/hiple_orchestrator.py
-# title: Self-Correcting Orchestrator
-# description: 計画評価サービスと自己修正ループを導入した司令塔。
+# title: Self-Correcting Orchestrator with Consultation Trigger
+# description: 計画評価サービスと自己修正ループを導入した司令塔。コンサルテーションプロセスを適切に呼び出す。
 
 import traceback
 from typing import Dict, List, Tuple, Any, Optional
@@ -11,7 +11,7 @@ from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
 from agents.router_agent import RouterAgent
 from services.retrieval_service import RetrievalService
-from services.plan_evaluation_service import PlanEvaluationService # 追加
+from services.plan_evaluation_service import PlanEvaluationService
 
 class HipleOrchestrator:
     """
@@ -26,7 +26,7 @@ class HipleOrchestrator:
         reporter_agent: ReporterAgent,
         router_agent: RouterAgent,
         retrieval_service: RetrievalService,
-        plan_evaluation_service: PlanEvaluationService, # 追加
+        plan_evaluation_service: PlanEvaluationService,
     ):
         self.model_manager = model_manager
         self.planner_agent = planner_agent
@@ -34,7 +34,7 @@ class HipleOrchestrator:
         self.reporter_agent = reporter_agent
         self.router_agent = router_agent
         self.retrieval_service = retrieval_service
-        self.plan_evaluation_service = plan_evaluation_service # 追加
+        self.plan_evaluation_service = plan_evaluation_service
         self.max_replanning_attempts = 2 # 再計画の最大試行回数
 
     def process_task(self, prompt: str) -> str:
@@ -70,17 +70,18 @@ class HipleOrchestrator:
         
         expert.system_prompt = "あなたは、ユーザーの質問に誠実かつ簡潔に答える、優秀なAIアシスタントです。"
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         task = SubTask(
             task_id=1, 
             description=prompt, 
             expert_name=expert.name,
-            ssv_description=prompt
+            ssv_description=prompt,
+            consultation_experts=[] # 単純タスクではコンサルテーションは不要
         )
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         context = self._build_minimal_context(prompt)
         
-        return self.generator_agent.execute(task, expert, context)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        return self.generator_agent.execute(task, expert, context, experts)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _process_complex_task(self, prompt: str, experts: List[ExpertModel]) -> str:
         """
@@ -89,7 +90,6 @@ class HipleOrchestrator:
         failed_plan: Optional[Plan] = None
         validation_error: Optional[str] = None
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         for attempt in range(self.max_replanning_attempts):
             print(f"\n--- Phase 1: Hierarchical Planning (Attempt {attempt + 1}) ---")
             current_plan = self.planner_agent.execute(prompt, experts, failed_plan, validation_error)
@@ -122,7 +122,6 @@ class HipleOrchestrator:
 
         print(f"❌ {self.max_replanning_attempts}回の再計画の試行後も、有効な計画を作成できませんでした。")
         return "エラー: 実行可能な計画を立案できませんでした。プロンプトを具体的にして再度お試しください。"
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _execute_plan(self, plan: Plan, experts: List[ExpertModel]) -> str:
         """
@@ -155,7 +154,9 @@ class HipleOrchestrator:
                 
                 print(f"\n▶️ Executing Task {task.task_id} ({task.expert_name.upper()}): {task.description}")
                 task.status = "in_progress"
-                task.result = self.generator_agent.execute(task, expert, context)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                task.result = self.generator_agent.execute(task, expert, context, experts)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 task.status = "completed"
                 completed_tasks[task.task_id] = task
                 print(f"✅ Task {task.task_id} Completed.")
