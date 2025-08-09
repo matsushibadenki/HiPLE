@@ -50,11 +50,18 @@ class HipleOrchestrator:
             if not active_experts: return "エラー: 利用可能なエキスパートがいません。"
 
             print("\n--- Phase 0: Routing ---")
-            task_type = self.tool_router_agent.execute(prompt, active_experts)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            routing_result = self.tool_router_agent.execute(prompt, active_experts)
+            task_type = routing_result.get("tool", "no_tool")
+            query = routing_result.get("query", prompt)
+
             print(f"🧠 ルーティング結果: {task_type.upper()}")
+            if task_type in ["wikipedia", "web_search"]:
+                print(f"🔑 抽出されたクエリ: '{query}'")
 
             if task_type == "wikipedia":
-                return self.wikipedia_agent.execute(prompt)
+                return self.wikipedia_agent.execute(query)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             elif task_type == "web_search":
                 return "ウェブ検索機能は現在実装中です。"
             elif task_type == "no_tool":
@@ -70,16 +77,12 @@ class HipleOrchestrator:
         """
         単純なタスクを直接実行する。
         """
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print("\n--- Direct Generation (using HRM for stability) ---")
-        # 不安定なJambaの使用をやめ、常に安定しているHRMを単純な応答に使用する
         expert = self.model_manager.get_expert("HRM")
         if not expert:
             return "エラー: 単純応答用のエキスパート'HRM'が見つかりません。"
         
-        # ユーザーとの対話に適したシステムプロンプトを設定
         expert.system_prompt = "あなたは、ユーザーの質問に誠実かつ簡潔に答える、優秀なAIアシスタントです。"
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         task = SubTask(
             task_id=1,
