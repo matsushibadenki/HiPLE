@@ -46,8 +46,7 @@ graph TD
         G["GeneratorAgent"]  
         C["ConsultantAgent"]  
         RAGA["RAGAgent"]  
-        subgraph Expert_Pool["Available Experts"]  
-            direction LR  
+        subgraph Expert_Pool["Available Experts"]
             E1["Jamba"]  
             E2["HRM Reasoner"]  
             E3["Transformer Coder"]  
@@ -58,8 +57,8 @@ graph TD
     end  
       
     subgraph RAG_Core  
-        DS["DataSources (Plan, File, etc.)"]  
-        RT["Retrievers (Faiss, BM25, etc.)"]  
+        DS["DataSources"]  
+        RT["Retrievers"]  
     end
 
     A --> O  
