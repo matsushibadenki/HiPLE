@@ -22,6 +22,7 @@
 
 ## **2\. システムアーキテクチャ**
 
+```Mermaid
 graph TD  
     subgraph UserInteraction  
         A\["User Prompt"\]  
@@ -95,6 +96,7 @@ graph TD
     O \-- "Tool-Use" \--\> External\_Tools
 
     O \-- "Final Response" \--\> A
+```
 
 ## **3\. ディレクトリ構成**
 
