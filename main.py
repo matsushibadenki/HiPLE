@@ -1,6 +1,6 @@
 # path: ./main.py
 # title: Main Entry Point for HiPLE System
-# description: HiPLEシステムを起動するメインファイル。TOKENIZERS_PARALLELISMを無効化。
+# description: HiPLEシステムを起動するメインファイル。非同期処理のエラーを修正し、同期的な対話ループを実装。
 
 import readline
 import sys
@@ -36,6 +36,8 @@ def main() -> None:
     print("--- 初期化が完了しました ---")
     print("対話を開始します。終了するには 'exit' または 'quit' と入力してください。")
 
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # 非同期処理をやめ、同期的ながら無限ループで対話を受け付ける
     while True:
         try:
             question: str = input("> ")
@@ -48,6 +50,7 @@ def main() -> None:
                 continue
 
             print("\n--- 思考中... ---")
+            # awaitを削除し、同期的にメソッドを呼び出す
             response: str = orchestrator.process_task(question)
             print("\n--- 回答 ---")
             print(response)
@@ -60,6 +63,7 @@ def main() -> None:
             print(f"致命的なエラーが発生しました: {e}")
             import traceback
             traceback.print_exc()
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 if __name__ == "__main__":
     main()

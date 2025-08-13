@@ -1,9 +1,9 @@
 # path: ./services/wikipedia_service.py
-# title: Wikipedia Service
-# description: Wikipedia APIをラップし、記事の検索や要約の取得を行うサービス。
+# title: Wikipedia Service (mypy compatible)
+# description: Wikipedia APIをラップし、記事の検索や要約の取得を行うサービス。mypyエラーを修正。
 
 import wikipedia
-from typing import List, Optional
+from typing import List, Optional, cast
 
 class WikipediaService:
     """
@@ -34,10 +34,13 @@ class WikipediaService:
             Optional[List[str]]: 記事タイトルのリスト。見つからない場合はNone。
         """
         try:
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             search_results = wikipedia.search(query, results=results)
             if not search_results:
                 return None
-            return search_results
+            # mypyに正しい型を伝えるためにキャストする
+            return cast(List[str], search_results)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         except Exception as e:
             print(f"❌ Wikipediaでの検索中にエラーが発生しました: {e}")
             return None
@@ -55,8 +58,10 @@ class WikipediaService:
         """
         try:
             # auto_suggest=Falseで厳密なタイトルマッチを行う
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             summary = wikipedia.summary(title, sentences=sentences, auto_suggest=False)
-            return summary
+            return cast(str, summary)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         except wikipedia.exceptions.PageError:
             print(f"🟡 記事 '{title}' が見つかりませんでした。")
             return None
@@ -66,8 +71,10 @@ class WikipediaService:
             try:
                 first_option = e.options[0]
                 print(f"↪️ 最初の候補 '{first_option}' で再試行します。")
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 summary = wikipedia.summary(first_option, sentences=sentences, auto_suggest=False)
-                return summary
+                return cast(str, summary)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             except Exception as inner_e:
                 print(f"❌ 再試行中にエラーが発生しました: {inner_e}")
                 return None

@@ -1,22 +1,27 @@
 # path: ./container/container.py
-# title: DI Container with Tool-Use Agents
-# description: WikipediaAgentとToolRouterAgentをDIコンテナに追加する。
+# title: DI Container with Modular RAG Components
+# description: DIコンテナにModular RAG関連のサービスとエージェントを登録する。
 
 from dependency_injector import containers, providers
 from domain.model_manager import ModelManager
 from services.model_loader import ModelLoaderService
 from services.vectorization_service import VectorizationService
-from services.retrieval_service import RetrievalService
 from services.worker_manager import WorkerManagerService
 from services.plan_evaluation_service import PlanEvaluationService
+from services.performance_tracker_service import PerformanceTrackerService
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from services.rag_manager_service import RAGManagerService
+from rag.retrievers import FaissRetriever
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from orchestrator.hiple_orchestrator import HipleOrchestrator
 from agents.planner_agent import PlannerAgent
 from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
 from agents.consultant_agent import ConsultantAgent
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from agents.tool_router_agent import ToolRouterAgent
 from agents.wikipedia_agent import WikipediaAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from agents.rag_agent import RAGAgent
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class Container(containers.DeclarativeContainer):
@@ -29,16 +34,26 @@ class Container(containers.DeclarativeContainer):
     # --- Services ---
     model_loader = providers.Singleton(ModelLoaderService)
     vectorization_service = providers.Singleton(VectorizationService)
-    retrieval_service = providers.Singleton(
-        RetrievalService,
-        vectorization_service=vectorization_service
-    )
+    performance_tracker = providers.Singleton(PerformanceTrackerService)
     worker_manager = providers.Singleton(WorkerManagerService)
     plan_evaluation_service = providers.Singleton(
         PlanEvaluationService,
         vectorization_service=vectorization_service
     )
     
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # RAG Components
+    faiss_retriever = providers.Factory(
+        FaissRetriever,
+        vectorization_service=vectorization_service
+    )
+
+    rag_manager = providers.Singleton(
+        RAGManagerService,
+        vectorization_service=vectorization_service
+    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
     model_manager = providers.Singleton(
         ModelManager,
         config_path=config_path.model_config_path
@@ -67,7 +82,6 @@ class Container(containers.DeclarativeContainer):
         model_loader=model_loader
     )
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     tool_router_agent = providers.Factory(
         ToolRouterAgent,
         model_loader=model_loader
@@ -75,7 +89,13 @@ class Container(containers.DeclarativeContainer):
 
     wikipedia_agent = providers.Factory(
         WikipediaAgent,
-        model_loader=model_loader # 引数は必須だが実際には使われない
+        model_loader=model_loader
+    )
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    rag_agent = providers.Factory(
+        RAGAgent,
+        model_loader=model_loader
     )
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
@@ -86,10 +106,13 @@ class Container(containers.DeclarativeContainer):
         planner_agent=planner_agent,
         generator_agent=generator_agent,
         reporter_agent=reporter_agent,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         tool_router_agent=tool_router_agent,
         wikipedia_agent=wikipedia_agent,
+        plan_evaluation_service=plan_evaluation_service,
+        performance_tracker=performance_tracker,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        rag_agent=rag_agent,
+        rag_manager=rag_manager,
+        faiss_retriever=faiss_retriever
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        retrieval_service=retrieval_service,
-        plan_evaluation_service=plan_evaluation_service
     )

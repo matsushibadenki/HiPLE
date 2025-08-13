@@ -1,24 +1,23 @@
 # path: ./agents/wikipedia_agent.py
-# title: Wikipedia Agent
-# description: WikipediaServiceを利用して、特定のトピックに関する情報を検索・要約するエージェント。
+# title: Wikipedia Agent (mypy compatible)
+# description: WikipediaServiceを利用して、特定のトピックに関する情報を検索・要約するエージェント。mypyエラーを修正。
 
 from typing import List, Dict, Any
 from agents.base_agent import BaseAgent
 from domain.schemas import ExpertModel
 from services.wikipedia_service import WikipediaService
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from services.model_loader import ModelLoaderService
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from llama_cpp.llama_types import ChatCompletionRequestMessage
 # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 class WikipediaAgent(BaseAgent):
     """
     Wikipediaを検索し、結果を要約して返すエージェント。
     """
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def __init__(self, model_loader: ModelLoaderService):
-        super().__init__(model_loader) # 親クラスの__init__を呼び出す
+        super().__init__(model_loader)
         self.wikipedia_service = WikipediaService(lang="ja")
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def execute(self, query: str) -> str:
         """
@@ -39,6 +38,9 @@ class WikipediaAgent(BaseAgent):
 
         return f"Wikipediaから得られた '{first_title}' の要約:\n\n{summary}"
 
-    def _query_llm(self, expert: ExpertModel, messages: List[Dict[str, Any]]) -> str:
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # 親クラスとシグネチャを合わせる
+    def _query_llm(self, expert: ExpertModel, messages: List[ChatCompletionRequestMessage]) -> str:
         # このエージェントはLLMを直接使用しないため、実装は不要
         raise NotImplementedError("WikipediaAgent does not use LLM directly.")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
