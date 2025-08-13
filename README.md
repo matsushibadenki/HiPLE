@@ -22,7 +22,7 @@
 
 ## **2\. システムアーキテクチャ**
 
-```Mermaid
+```mermaid
 graph TD  
     subgraph UserInteraction  
         A\["User Prompt"\]  
@@ -100,7 +100,7 @@ graph TD
 
 ## **3\. ディレクトリ構成**
 
-/hybrid\_llm\_system  
+/HiPLE
 ├── agents/  
 │   ├── base\_agent.py  
 │   ├── planner\_agent.py  
