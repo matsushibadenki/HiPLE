@@ -1,8 +1,19 @@
 # path: ./config/models.yml
-# title: AI Expert Definition with Stabilized Execution Strategy
-# description: Jambaの実行戦略を'inline'に変更し、不安定なワーカープロセスを回避する。
+# title: AI Expert Definition with Stabilized Greeter
+# description: Greeterエキスパートのシステムプロンプトを単純化し、応答を安定させる。
 
 worker_experts:
+  greeter:
+    name: "Greeter"
+    description: "ユーザーとの挨拶や簡単なチャットなど、単純な対話に特化した軽量エキスパート。"
+    model_path_env: "JAMBA_MODEL_PATH"
+    chat_format: "chatml"
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    system_prompt: "あなたは、ユーザーの挨拶や簡単なチャットに、フレンドリーかつ簡潔に日本語で応答するAIアシスタントです。常に親切なトーンを心がけてください。"
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    enabled: true
+    execution_strategy: "inline"
+
   jamba:
     name: "Jamba"
     description: "ユーザーとの対話、創造的な文章生成、タスク計画の立案など、幅広いコミュニケーションタスクを担当する汎用エキスパート。"
@@ -10,9 +21,7 @@ worker_experts:
     chat_format: "chatml"
     system_prompt: "あなたは、誠実で優秀なAIアシスタントです。"
     enabled: true
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    execution_strategy: "inline" # 不安定なワーカープロセスを回避し、インライン実行に切り替える
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    execution_strategy: "inline"
 
   reporter:
     name: "Reporter"

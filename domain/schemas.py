@@ -1,9 +1,9 @@
 # path: ./domain/schemas.py
-# title: Data Schemas with Consultation Experts
-# description: SubTaskに、相談相手のエキスパート(consultation_experts)を保持するフィールドを追加。
+# title: Data Schemas with Reviewer and Feedback Loop (Fixed)
+# description: SubTaskにレビュー担当者とフィードバック履歴のフィールドを追加し、型ヒントのインポートエラーを修正。
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Any, Union, TYPE_CHECKING
+from typing import List, Optional, Any, Union, Dict, TYPE_CHECKING
 from llama_cpp import Llama
 import numpy as np
 
@@ -36,9 +36,9 @@ class SubTask:
     description: str
     expert_name: str
     ssv_description: str # 意味構造を記述した短いテキスト
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     consultation_experts: List[str] = field(default_factory=list) # 相談相手のエキスパート名リスト
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    reviewer_expert: Optional[str] = None # レビュー担当のエキスパート名
+    feedback_history: List[Dict[str, str]] = field(default_factory=list) # レビューと修正の履歴
     dependencies: List[int] = field(default_factory=list)
     result: Optional[str] = None
     status: str = "pending"

@@ -1,6 +1,6 @@
 # path: ./container/container.py
-# title: DI Container with Modular RAG Components
-# description: DIコンテナにModular RAG関連のサービスとエージェントを登録する。
+# title: DI Container with Reviewer Agent
+# description: DIコンテナにReviewerAgentを登録し、Orchestratorに注入する。
 
 from dependency_injector import containers, providers
 from domain.model_manager import ModelManager
@@ -9,10 +9,9 @@ from services.vectorization_service import VectorizationService
 from services.worker_manager import WorkerManagerService
 from services.plan_evaluation_service import PlanEvaluationService
 from services.performance_tracker_service import PerformanceTrackerService
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from services.rag_manager_service import RAGManagerService
+from services.web_browser_service import WebBrowserService
 from rag.retrievers import FaissRetriever
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from orchestrator.hiple_orchestrator import HipleOrchestrator
 from agents.planner_agent import PlannerAgent
 from agents.generator_agent import GeneratorAgent
@@ -20,9 +19,9 @@ from agents.reporter_agent import ReporterAgent
 from agents.consultant_agent import ConsultantAgent
 from agents.tool_router_agent import ToolRouterAgent
 from agents.wikipedia_agent import WikipediaAgent
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from agents.web_browser_agent import WebBrowserAgent
 from agents.rag_agent import RAGAgent
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from agents.reviewer_agent import ReviewerAgent # 追加
 
 class Container(containers.DeclarativeContainer):
     """
@@ -36,12 +35,12 @@ class Container(containers.DeclarativeContainer):
     vectorization_service = providers.Singleton(VectorizationService)
     performance_tracker = providers.Singleton(PerformanceTrackerService)
     worker_manager = providers.Singleton(WorkerManagerService)
+    web_browser_service = providers.Singleton(WebBrowserService)
     plan_evaluation_service = providers.Singleton(
         PlanEvaluationService,
         vectorization_service=vectorization_service
     )
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     # RAG Components
     faiss_retriever = providers.Factory(
         FaissRetriever,
@@ -52,7 +51,6 @@ class Container(containers.DeclarativeContainer):
         RAGManagerService,
         vectorization_service=vectorization_service
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     model_manager = providers.Singleton(
         ModelManager,
@@ -92,12 +90,22 @@ class Container(containers.DeclarativeContainer):
         model_loader=model_loader
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    web_browser_agent = providers.Factory(
+        WebBrowserAgent,
+        model_loader=model_loader
+    )
+
     rag_agent = providers.Factory(
         RAGAgent,
         model_loader=model_loader
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    reviewer_agent = providers.Factory(
+        ReviewerAgent,
+        model_loader=model_loader
+    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- Orchestrator ---
     hiple_orchestrator = providers.Factory(
@@ -108,11 +116,14 @@ class Container(containers.DeclarativeContainer):
         reporter_agent=reporter_agent,
         tool_router_agent=tool_router_agent,
         wikipedia_agent=wikipedia_agent,
+        web_browser_agent=web_browser_agent,
+        web_browser_service=web_browser_service,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        reviewer_agent=reviewer_agent,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         plan_evaluation_service=plan_evaluation_service,
         performance_tracker=performance_tracker,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         rag_agent=rag_agent,
         rag_manager=rag_manager,
         faiss_retriever=faiss_retriever
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     )

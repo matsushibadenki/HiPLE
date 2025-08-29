@@ -33,6 +33,20 @@ class WebBrowserService:
             self.playwright = None
         print("🖥️ ブラウザを終了しました。")
 
+    def get_page_content_sync(self, url: str) -> str:
+        """
+        get_page_contentの同期ラッパー
+        """
+        return asyncio.run(self.get_page_content(url))
+
+    def close_browser_sync(self) -> None:
+        """
+        close_browserの同期ラッパー
+        """
+        # ブラウザが起動している場合のみ閉じる
+        if self.browser and self.browser.is_connected():
+            asyncio.run(self.close_browser())
+
     async def get_page_content(self, url: str) -> str:
         """
         指定されたURLのレンダリング済みHTMLコンテンツを取得する。

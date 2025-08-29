@@ -1,6 +1,6 @@
 # path: ./agents/planner_agent.py
-# title: Hierarchical PlannerAgent with Performance-Awareness
-# description: エキスパートのパフォーマンス情報を考慮して、他のエキスパートへの相談を含む階層的な計画を生成する。
+# title: Hierarchical PlannerAgent with Performance-Awareness and Reviewer Assignment
+# description: エキスパートのパフォーマンス情報を考慮し、他のエキスパートへの相談やレビュー担当者の割り当てを含む階層的な計画を生成する。
 
 import json
 import re
@@ -12,7 +12,7 @@ from agents.base_agent import BaseAgent
 class PlannerAgent(BaseAgent):
     """
     ユーザーの要求を分析し、階層的な計画（Plan）を生成するエージェント (HiPLE-P)
-    エキスパートのパフォーマンスも考慮する
+    エキスパートのパフォーマンスも考慮し、レビュープロセスも組み込む
     """
     def execute(
         self,
@@ -20,14 +20,12 @@ class PlannerAgent(BaseAgent):
         experts: List[ExpertModel],
         failed_plan: Optional[Plan] = None,
         validation_error: Optional[str] = None,
-        performance_summary: Optional[str] = None # 追加
+        performance_summary: Optional[str] = None
     ) -> Plan:
         planner_expert = self._find_planner_expert(experts)
         expert_descriptions = self._format_expert_descriptions(experts)
 
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         system_prompt = self._build_system_prompt(expert_descriptions, performance_summary)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         user_prompt = self._build_user_prompt(prompt, validation_error, failed_plan)
         
         messages: List[ChatCompletionRequestMessage] = [
@@ -49,7 +47,6 @@ class PlannerAgent(BaseAgent):
             if expert.chat_format != "diffusion": return expert
         raise ValueError("利用可能なプランナーエキスパートが見つかりません。")
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def _build_system_prompt(self, expert_descriptions: str, performance_summary: Optional[str]) -> str:
         prompt_header = """あなたは、ユーザーの曖昧な要求を構造化された階層的計画に変換する、超優秀なAIプロジェクトマネージャーです。
 
@@ -60,6 +57,7 @@ class PlannerAgent(BaseAgent):
 2.  **エキスパート選定 (最重要)**: 各タスクに最適なエキスパートを `expert_name` に割り当ててください。**エキスパートのパフォーマンスサマリーを最優先の判断材料とし、スコアが高く、タスク内容に適したエキスパートを選択**してください。
 3.  **意味構造の定義**: 各サブタスク（L3）には、そのタスクの本質的な意味を凝縮した短い説明文 `ssv_description` を必ず設定してください。
 4.  **コンサルテーション**: タスクの品質向上のため、複数の専門知識が必要だと判断した場合、`consultation_experts`フィールドに助言を求めるべきエキスパート名のリストを指定してください。
+5.  **品質保証 (レビュー)**: コード生成や重要な分析など、品質が特に重要なタスクには `reviewer_expert` を設定してください。これにより、成果物のクロスチェックが行われます。
 """
 
         experts_section = f"""
@@ -92,6 +90,7 @@ class PlannerAgent(BaseAgent):
       "expert_name": "（パフォーマンスと適性を考慮して選んだエキスパート名）",
       "ssv_description": "（タスクの意味の核を記述した短い説明文）",
       "consultation_experts": ["（助言を求めるエキスパート名1）"],
+      "reviewer_expert": "（成果物の品質を保証するためのレビュー担当者名。特に重要なタスクや、コード生成タスクに設定）",
       "dependencies": []
     }
   ]
@@ -103,11 +102,11 @@ class PlannerAgent(BaseAgent):
 # ルール
 - **ID**: `milestone_id`と`task_id`は1から始まる連番にしてください。
 - **依存関係**: `dependencies`には先行タスクの`task_id`をリストで指定します。
+- **レビュー**: `reviewer_expert`を設定することで、品質保証のステップを追加できます。例えば、'Transformer'が生成したコードは'HRM'がレビューするなど、異なる視点でのチェックが有効です。
 - **報告タスク**: 複雑な要求の場合、最後に'Reporter'を配置し、最終報告書を作成させてください。
 - **単純な要求**: 単純な挨拶や質問の場合、マイルストーンは1つ、タスクも1つだけ生成します。
 """
         return prompt_header + experts_section + performance_section + json_format_section + rules_section
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _build_user_prompt(self, prompt: str, validation_error: Optional[str], failed_plan: Optional[Plan]) -> str:
         user_prompt = f"以下のユーザー要求に対する階層的実行計画をJSON形式で作成してください:\n\n要求: \"{prompt}\""
@@ -135,7 +134,6 @@ class PlannerAgent(BaseAgent):
             milestones = [Milestone(**m) for m in plan_data.get("milestones", [])]
             tasks_data = plan_data.get("tasks", [])
             if not tasks_data:
-                 # フォールバック：単純なタスクとして生成
                  return self._create_fallback_plan(original_prompt, planner_expert)
 
             for t in tasks_data:
@@ -143,6 +141,12 @@ class PlannerAgent(BaseAgent):
                     t["ssv_description"] = t["description"]
                 if "consultation_experts" not in t:
                     t["consultation_experts"] = []
+                # reviewer_expertがない場合はNoneを設定
+                if "reviewer_expert" not in t:
+                    t["reviewer_expert"] = None
+                # feedback_historyは初期化
+                t["feedback_history"] = []
+
 
             tasks = [SubTask(**t) for t in tasks_data]
 
@@ -166,6 +170,7 @@ class PlannerAgent(BaseAgent):
             expert_name=expert.name,
             ssv_description=original_prompt,
             consultation_experts=[],
+            reviewer_expert=None,
             dependencies=[]
         )
         milestone = Milestone(milestone_id=1, title="Direct Execution", description="Execute the user's prompt directly.")
