@@ -1,6 +1,6 @@
 # path: ./container/container.py
-# title: DI Container with Reviewer Agent
-# description: DIコンテナにReviewerAgentを登録し、Orchestratorに注入する。
+# title: DI Container with Simple Router
+# description: DIコンテナを更新し、LLMベースのToolRouterAgentを廃止して、新しいSimpleRouterを使用する。
 
 from dependency_injector import containers, providers
 from domain.model_manager import ModelManager
@@ -13,15 +13,15 @@ from services.rag_manager_service import RAGManagerService
 from services.web_browser_service import WebBrowserService
 from rag.retrievers import FaissRetriever
 from orchestrator.hiple_orchestrator import HipleOrchestrator
+from orchestrator.router import SimpleRouter
 from agents.planner_agent import PlannerAgent
 from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
 from agents.consultant_agent import ConsultantAgent
-from agents.tool_router_agent import ToolRouterAgent
 from agents.wikipedia_agent import WikipediaAgent
 from agents.web_browser_agent import WebBrowserAgent
 from agents.rag_agent import RAGAgent
-from agents.reviewer_agent import ReviewerAgent # 追加
+from agents.reviewer_agent import ReviewerAgent
 
 class Container(containers.DeclarativeContainer):
     """
@@ -57,6 +57,9 @@ class Container(containers.DeclarativeContainer):
         config_path=config_path.model_config_path
     )
     
+    # --- Router ---
+    simple_router = providers.Factory(SimpleRouter)
+
     # --- Agents (Engines) ---
     planner_agent = providers.Factory(
         PlannerAgent,
@@ -80,11 +83,6 @@ class Container(containers.DeclarativeContainer):
         model_loader=model_loader
     )
     
-    tool_router_agent = providers.Factory(
-        ToolRouterAgent,
-        model_loader=model_loader
-    )
-
     wikipedia_agent = providers.Factory(
         WikipediaAgent,
         model_loader=model_loader
@@ -100,27 +98,23 @@ class Container(containers.DeclarativeContainer):
         model_loader=model_loader
     )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     reviewer_agent = providers.Factory(
         ReviewerAgent,
         model_loader=model_loader
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- Orchestrator ---
     hiple_orchestrator = providers.Factory(
         HipleOrchestrator,
         model_manager=model_manager,
+        simple_router=simple_router,
         planner_agent=planner_agent,
         generator_agent=generator_agent,
         reporter_agent=reporter_agent,
-        tool_router_agent=tool_router_agent,
         wikipedia_agent=wikipedia_agent,
         web_browser_agent=web_browser_agent,
         web_browser_service=web_browser_service,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         reviewer_agent=reviewer_agent,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         plan_evaluation_service=plan_evaluation_service,
         performance_tracker=performance_tracker,
         rag_agent=rag_agent,

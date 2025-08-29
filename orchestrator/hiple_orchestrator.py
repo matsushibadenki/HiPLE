@@ -1,16 +1,16 @@
 # path: ./orchestrator/hiple_orchestrator.py
-# title: Orchestrator with Greeting Detection and Robust Success Check
-# description: 単純な挨拶を検知して即時応答する機能を追加し、タスクの成功判定をより厳密にする。
+# title: Orchestrator with Simple Router and Refined Logic
+# description: LLMベースの不安定なルーターを廃止し、キーワードベースの高速なルーターを導入。ロジックを簡素化し、安定性を向上させる。
 
 import time
 import traceback
 from typing import Dict, List, Tuple, Any, Optional
+
 from domain.model_manager import ModelManager
 from domain.schemas import SubTask, Plan, ExpertModel, Milestone
 from agents.planner_agent import PlannerAgent
 from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
-from agents.tool_router_agent import ToolRouterAgent
 from agents.wikipedia_agent import WikipediaAgent
 from agents.web_browser_agent import WebBrowserAgent
 from services.web_browser_service import WebBrowserService
@@ -21,19 +21,20 @@ from rag.retrievers import BaseRetriever
 from rag.data_sources import PlanDataSource, Document
 from services.plan_evaluation_service import PlanEvaluationService
 from services.performance_tracker_service import PerformanceTrackerService
+from .router import SimpleRouter
 
 class HipleOrchestrator:
     """
     HiPLEアーキテクチャに基づき、思考プロセス全体を管理する。
-    Modular RAGと動的なエキスパート選択を備える。
+    SimpleRouterによる高速な初期振り分けを行う。
     """
     def __init__(
         self,
         model_manager: ModelManager,
+        simple_router: SimpleRouter,
         planner_agent: PlannerAgent,
         generator_agent: GeneratorAgent,
         reporter_agent: ReporterAgent,
-        tool_router_agent: ToolRouterAgent,
         wikipedia_agent: WikipediaAgent,
         web_browser_agent: WebBrowserAgent,
         web_browser_service: WebBrowserService,
@@ -45,10 +46,10 @@ class HipleOrchestrator:
         faiss_retriever: BaseRetriever,
     ):
         self.model_manager = model_manager
+        self.simple_router = simple_router
         self.planner_agent = planner_agent
         self.generator_agent = generator_agent
         self.reporter_agent = reporter_agent
-        self.tool_router_agent = tool_router_agent
         self.wikipedia_agent = wikipedia_agent
         self.web_browser_agent = web_browser_agent
         self.web_browser_service = web_browser_service
@@ -60,58 +61,41 @@ class HipleOrchestrator:
         self.rag_manager.register_retriever("plan_retriever", faiss_retriever)
         self.max_replanning_attempts = 2
         self.max_feedback_loops = 2
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        self.greetings = {
-            "こんにちは": "こんにちは！何かお役に立てることはありますか？",
-            "おはよう": "おはようございます！良い一日を。",
-            "こんばんは": "こんばんは。いかがお過ごしですか？",
-            "ありがとう": "どういたしまして！"
-        }
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def process_task(self, prompt: str) -> str:
         if prompt.strip().lower() == "show performance":
             return self.performance_tracker.get_performance_summary()
-            
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # モデルをロードする前に、単純な挨拶かどうかをチェック
-        normalized_prompt = prompt.strip()
-        for greeting, response in self.greetings.items():
-            if greeting in normalized_prompt:
-                print("👋 シンプルな挨拶を検出しました。即時応答します。")
-                return response
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-
+        
         print(f"▶️ HiPLEタスク開始: {prompt}")
         try:
             active_experts = self.model_manager.get_all_experts()
             if not active_experts: return "エラー: 利用可能なエキスパートがいません。"
 
             print("\n--- Phase 0: Routing ---")
-            routing_result = self.tool_router_agent.execute(prompt, active_experts)
-            task_type = routing_result.get("tool", "no_tool")
-            query = routing_result.get("query", prompt)
-            url = routing_result.get("url")
-
+            route_result = self.simple_router.route(prompt)
+            task_type = route_result["type"]
+            
             print(f"🧠 ルーティング結果: {task_type.upper()}")
-            if task_type in ["wikipedia", "web_search"]:
-                print(f"🔑 抽出されたクエリ: '{query}'")
 
+            if task_type == "greeting":
+                return route_result["response"]
+            
+            query = route_result["query"]
+            
             if task_type == "wikipedia":
                 return self.wikipedia_agent.execute(query, active_experts)
+            
             elif task_type == "web_search":
-                if not url:
-                    return "エラー: Web検索が指定されましたが、URLがありません。"
-                try:
-                    content = self.web_browser_service.get_page_content_sync(url)
-                    return self.web_browser_agent.execute(content, query, active_experts)
-                except Exception as e:
-                    traceback.print_exc()
-                    return f"エラー: Webページの処理中に問題が発生しました - {e}"
-            elif task_type == "no_tool":
-                return self._process_simple_task(prompt, active_experts)
-            else: # complex_task
-                return self._process_complex_task(prompt, active_experts)
+                return "ウェブ検索機能は現在実装中です。URLを直接指定してください。"
+            
+            elif task_type == "simple_chat":
+                return self._process_simple_task(query, active_experts)
+            
+            elif task_type == "complex_task":
+                return self._process_complex_task(query, active_experts)
+            
+            else:
+                return f"エラー: 不明なタスクタイプ '{task_type}'"
 
         except Exception as e:
             traceback.print_exc()
@@ -140,10 +124,7 @@ class HipleOrchestrator:
         result = self.generator_agent.execute(task, expert, context, experts)
         execution_time = time.time() - start_time
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # 成功判定をより厳密にする
         success = result is not None and result.strip() != "" and "エラー" not in result
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.performance_tracker.update_performance(expert.name, execution_time, success)
 
         return result
@@ -247,9 +228,7 @@ class HipleOrchestrator:
                     task.result = generated_output
                     break
                 
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 success = task.result is not None and task.result.strip() != "" and "エラー" not in task.result
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 self.performance_tracker.update_performance(expert.name, execution_time, success)
 
                 task.status = "completed" if success else "failed"
