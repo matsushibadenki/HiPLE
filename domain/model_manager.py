@@ -1,6 +1,6 @@
 # path: ./domain/model_manager.py
-# title: ModelManager with Execution Strategy
-# description: エキスパート定義の読み込み時に、実行戦略も読み込むようにする。
+# title: ModelManager with Dynamic Model Assignment
+# description: .envファイルの設定に基づき、YAMLで定義されたエキスパート設定を動的に読み込む。
 
 import os
 import yaml
@@ -10,7 +10,7 @@ from .schemas import ExpertModel
 
 class ModelManager:
     """
-    models.ymlからエキスパートモデルの定義を読み込み、管理するクラス
+    models.ymlからエキスパートモデルの定義を読み込み、.envの指定に基づいて動的に割り当てるクラス
     """
     def __init__(self, config_path: str):
         load_dotenv()
@@ -25,14 +25,32 @@ class ModelManager:
         except Exception as e:
             raise RuntimeError(f"モデル設定ファイルの読み込みに失敗しました: {e}")
 
-        experts: Dict[str, ExpertModel] = {}
-        expert_definitions = config.get("worker_experts", {})
+        all_definitions = config.get("worker_experts", {})
+        
+        # .envから "jamba:jamba_default, hrm:hrm_alternative" のようなマッピング文字列を取得
+        expert_mapping_str = os.getenv("EXPERT_MAPPING")
+        if not expert_mapping_str:
+            raise ValueError(".envファイルにEXPERT_MAPPINGが設定されていません。")
 
-        for name, settings in expert_definitions.items():
-            if not settings.get("enabled", False):
-                print(f"ℹ️ エキスパート '{name}' は設定で無効化されています。スキップします。")
+        # マッピングを辞書に変換: {"jamba": "jamba_default", "hrm": "hrm_alternative"}
+        try:
+            expert_mapping = dict(item.strip().split(':') for item in expert_mapping_str.split(','))
+        except ValueError:
+            raise ValueError("EXPERT_MAPPINGの形式が正しくありません。'type:definition, type:definition'の形式で記述してください。")
+
+        loaded_experts: Dict[str, ExpertModel] = {}
+
+        for expert_type, definition_key in expert_mapping.items():
+            settings = all_definitions.get(definition_key)
+
+            if not settings:
+                print(f"⚠️ 警告: EXPERT_MAPPINGで指定された '{definition_key}' の定義がmodels.ymlに見つかりません。")
                 continue
 
+            if not settings.get("enabled", False):
+                print(f"ℹ️ エキスパート '{definition_key}' は設定で無効化されています。スキップします。")
+                continue
+            
             is_diffusion_model = settings.get("chat_format") == "diffusion"
             model_path: Optional[str] = None
             model_id: Optional[str] = None
@@ -40,17 +58,19 @@ class ModelManager:
             if is_diffusion_model:
                 model_id = settings.get("model_id")
             else:
-                model_path_env_key = settings.get("model_path_env")
-                if model_path_env_key:
-                    model_path = os.getenv(model_path_env_key)
+                # YAMLの model_env_key を使って .env からモデルパスを取得
+                model_env_key = settings.get("model_env_key")
+                if model_env_key:
+                    model_path = os.getenv(model_env_key)
                 
                 if not model_path:
-                    print(f"⚠️ 警告: エキスパート '{name}' のモデルパスが見つかりません。スキップします。")
+                    print(f"⚠️ 警告: エキスパート '{settings.get('name', definition_key)}' のモデルパス (環境変数: {model_env_key}) が見つかりません。スキップします。")
                     continue
             
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-            experts[name.lower()] = ExpertModel(
-                name=settings.get("name", name),
+            # expert_typeをキーとして登録
+            expert_name = settings.get("name", expert_type)
+            loaded_experts[expert_name.lower()] = ExpertModel(
+                name=expert_name,
                 description=settings.get("description", ""),
                 model_path=model_path,
                 model_id=model_id,
@@ -60,12 +80,11 @@ class ModelManager:
                 keywords=settings.get("keywords", []),
                 enabled=True
             )
-            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        
-        if not experts:
+
+        if not loaded_experts:
             raise ValueError("有効なエキスパートが一人も設定されていません。.envとmodels.ymlを確認してください。")
             
-        return experts
+        return loaded_experts
 
     def get_expert(self, name: str) -> Optional[ExpertModel]:
         return self.experts.get(name.lower())

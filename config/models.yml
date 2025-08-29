@@ -1,68 +1,78 @@
 # path: ./config/models.yml
-# title: AI Expert Definition with Stabilized Greeter
-# description: Greeterエキスパートのシステムプロンプトを単純化し、応答を安定させる。
+# title: AI Expert Definition with Flexible Model Assignment
+# description: 各エキスパートの定義を汎用化し、.envファイルから動的にモデルを割り当てられるように修正。
 
 worker_experts:
-  greeter:
-    name: "Greeter"
-    description: "ユーザーとの挨拶や簡単なチャットなど、単純な対話に特化した軽量エキスパート。"
-    model_path_env: "JAMBA_MODEL_PATH"
+  # --- General Purpose Experts ---
+  jamba_default:
+    name: "Jamba"
+    description: "ユーザーとの対話、創造的な文章生成、タスク計画の立案など、幅広いコミュニケーションタスクを担当する汎用エキスパート。"
+    expert_type: "jamba"
+    model_env_key: "JAMBA_MODEL"
     chat_format: "chatml"
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    system_prompt: "あなたは、ユーザーの挨拶や簡単なチャットに、フレンドリーかつ簡潔に日本語で応答するAIアシスタントです。常に親切なトーンを心がけてください。"
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    system_prompt: "あなたは、誠実で優秀なAIアシスタントです。"
     enabled: true
     execution_strategy: "inline"
 
-  jamba:
-    name: "Jamba"
-    description: "ユーザーとの対話、創造的な文章生成、タスク計画の立案など、幅広いコミュニケーションタスクを担当する汎用エキスパート。"
-    model_path_env: "JAMBA_MODEL_PATH"
+  greeter:
+    name: "Greeter"
+    description: "ユーザーとの挨拶や簡単なチャットなど、単純な対話に特化した軽量エキスパート。"
+    expert_type: "jamba" # GreeterもJamba系の軽量モデルを想定
+    model_env_key: "GREETER_MODEL"
     chat_format: "chatml"
-    system_prompt: "あなたは、誠実で優秀なAIアシスタントです。"
+    system_prompt: "あなたは、ユーザーの挨拶や簡単なチャ-ットに、フレンドリーかつ簡潔に日本語で応答するAIアシスタントです。常に親切なトーンを心がけてください。"
+    enabled: true
+    execution_strategy: "inline"
+
+  # --- Reasoning Experts ---
+  hrm_default:
+    name: "HRM"
+    description: "複雑な論理パズル、計画立案、ステップバイステップの推論を得意とするエキスパート。システムの主要な思考エンジンとして機能する。"
+    expert_type: "hrm"
+    model_env_key: "HRM_MODEL"
+    chat_format: "chatml"
+    system_prompt: "You are a logical reasoner. Think step by step to solve the problem."
     enabled: true
     execution_strategy: "inline"
 
   reporter:
     name: "Reporter"
     description: "全エキスパートの成果を統合し、首尾一貫した最終報告書を作成するテクニカルライター。"
-    model_path_env: "HRM_MODEL_PATH"
+    expert_type: "hrm" # Reporterも論理的構成力が必要なためHRM系を想定
+    model_env_key: "REPORTER_MODEL"
     chat_format: "chatml"
     system_prompt: "あなたは優秀なテクニカルライターです。提供された全タスクの結果を元に、ユーザーの元の要求に対する包括的で分かりやすい最終報告書を作成してください。"
     enabled: true
     execution_strategy: "inline"
 
-  liquids4:
-    name: "LiquidS4"
-    description: "長文の読解、要約、分析、そして長期的な文脈の記憶保持を得意とするエキスパート。"
-    model_path_env: "LIQUIDS4_MODEL_PATH"
-    chat_format: "llama-2"
-    system_prompt: "You are an expert in summarizing and analyzing long texts. Provide a clear, concise, and logical summary."
-    enabled: false
-    execution_strategy: "inline"
-
-  hrm:
-    name: "HRM"
-    description: "複雑な論理パズル、計画立案、ステップバイステップの推論を得意とするエキスパート。システムの主要な思考エンジンとして機能する。"
-    model_path_env: "HRM_MODEL_PATH"
-    chat_format: "chatml"
-    system_prompt: "You are a logical reasoner. Think step by step to solve the problem."
-    enabled: true
-    execution_strategy: "inline"
-
-  transformer:
+  # --- Coding Experts ---
+  transformer_default:
     name: "Transformer"
     description: "コーディング、プログラミング、具体的な関数の実装を得意とするエキスパート。"
-    model_path_env: "TRANSFORMER_MODEL_PATH"
+    expert_type: "transformer"
+    model_env_key: "TRANSFORMER_MODEL"
     chat_format: "gemma"
     system_prompt: "You are a helpful and intelligent assistant for coding. Provide clean, efficient, and well-commented code."
     enabled: true
     execution_strategy: "inline"
 
-  visualizer:
+  # --- Specialized Experts ---
+  liquids4_default:
+    name: "LiquidS4"
+    description: "長文の読解、要約、分析、そして長期的な文脈の記憶保持を得意とするエキスパート。"
+    expert_type: "specialized"
+    model_env_key: "LIQUIDS4_MODEL"
+    chat_format: "llama-2"
+    system_prompt: "You are an expert in summarizing and analyzing long texts. Provide a clear, concise, and logical summary."
+    enabled: false # デフォルトでは無効
+    execution_strategy: "inline"
+
+  # --- Vision Experts ---
+  visualizer_default:
     name: "Visualizer"
     description: "テキスト記述（プロンプト）から高品質な画像を生成する視覚化のエキスパート。"
-    model_id: "stabilityai/stable-diffusion-xl-base-1.0"
+    expert_type: "visualizer"
+    model_id: "stabilityai/stable-diffusion-xl-base-1.0" # HuggingFace IDは直接指定
     chat_format: "diffusion"
     system_prompt: "You are a creative visualizer. Generate an image based on the user's prompt."
     enabled: true
