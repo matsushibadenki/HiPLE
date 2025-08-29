@@ -1,5 +1,6 @@
-# /hybrid_llm_system/workspace/global_workspace.py
-# グローバル・ワークスペース：思考の履歴と状態を管理
+# path: ./workspace/global_workspace.py
+# title: Global Workspace with Clear Functionality
+# description: 思考の履歴と状態を管理する。新しい対話サイクルを開始するためにクリア機能を追加。
 
 import copy
 from typing import List, Dict, Any, Optional
@@ -15,13 +16,12 @@ class GlobalWorkspace:
         self.final_answer: Optional[str] = None
         self.chat_histories: Dict[str, List[ChatCompletionRequestMessage]] = {}
 
-    def initialize(self, expert_names: List[str], system_prompts: Dict[str, str]) -> None:
-        """ワークスペースを初期化する"""
+    def clear(self) -> None:
+        """ワークスペースの状態をリセットする"""
         self.original_prompt = ""
         self.thought_process = []
         self.final_answer = None
-        for name in expert_names:
-            self.chat_histories[name] = [{"role": "system", "content": system_prompts.get(name, "")}]
+        # chat_historiesはセッション間で維持するためクリアしない
 
     def set_initial_prompt(self, prompt: str) -> None:
         """ユーザーからの最初のプロンプトを設定する"""

@@ -1,32 +1,33 @@
 # path: ./orchestrator/hiple_orchestrator.py
-# title: Orchestrator with Simple Router and Refined Logic
-# description: LLMベースの不安定なルーターを廃止し、キーワードベースの高速なルーターを導入。ロジックを簡素化し、安定性を向上させる。
+# title: Orchestrator with Tool Execution Loop
+# description: GeneratorAgentからのツール利用要求をハンドリングし、ToolManagerを介してツールを実行し、結果をフィードバックするループを実装。
 
 import time
 import traceback
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, cast
 
 from domain.model_manager import ModelManager
 from domain.schemas import SubTask, Plan, ExpertModel, Milestone
 from agents.planner_agent import PlannerAgent
 from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
-from agents.wikipedia_agent import WikipediaAgent
-from agents.web_browser_agent import WebBrowserAgent
-from services.web_browser_service import WebBrowserService
+from agents.critic_agent import CriticAgent
 from agents.rag_agent import RAGAgent
 from agents.reviewer_agent import ReviewerAgent
 from services.rag_manager_service import RAGManagerService
-from rag.retrievers import BaseRetriever
-from rag.data_sources import PlanDataSource, Document
 from services.plan_evaluation_service import PlanEvaluationService
 from services.performance_tracker_service import PerformanceTrackerService
+from services.tool_manager_service import ToolManagerService
+from rag.retrievers import BaseRetriever
+from rag.data_sources import PlanDataSource, Document
+from workspace.global_workspace import GlobalWorkspace
+from utils.thought_logger import ThoughtLogger
 from .router import SimpleRouter
 
 class HipleOrchestrator:
     """
     HiPLEアーキテクチャに基づき、思考プロセス全体を管理する。
-    SimpleRouterによる高速な初期振り分けを行う。
+    ツール利用要求をハンドリングし、自己改善的な実行ループを実現する。
     """
     def __init__(
         self,
@@ -35,59 +36,70 @@ class HipleOrchestrator:
         planner_agent: PlannerAgent,
         generator_agent: GeneratorAgent,
         reporter_agent: ReporterAgent,
-        wikipedia_agent: WikipediaAgent,
-        web_browser_agent: WebBrowserAgent,
-        web_browser_service: WebBrowserService,
         reviewer_agent: ReviewerAgent,
         plan_evaluation_service: PlanEvaluationService,
         performance_tracker: PerformanceTrackerService,
         rag_agent: RAGAgent,
         rag_manager: RAGManagerService,
         faiss_retriever: BaseRetriever,
+        critic_agent: CriticAgent,
+        tool_manager: ToolManagerService,
+        global_workspace: GlobalWorkspace,
+        thought_logger: ThoughtLogger,
     ):
         self.model_manager = model_manager
         self.simple_router = simple_router
         self.planner_agent = planner_agent
         self.generator_agent = generator_agent
         self.reporter_agent = reporter_agent
-        self.wikipedia_agent = wikipedia_agent
-        self.web_browser_agent = web_browser_agent
-        self.web_browser_service = web_browser_service
         self.reviewer_agent = reviewer_agent
         self.plan_evaluation_service = plan_evaluation_service
         self.performance_tracker = performance_tracker
         self.rag_agent = rag_agent
         self.rag_manager = rag_manager
         self.rag_manager.register_retriever("plan_retriever", faiss_retriever)
-        self.max_replanning_attempts = 2
+        self.critic_agent = critic_agent
+        self.tool_manager = tool_manager
+        self.workspace = global_workspace
+        self.thought_logger = thought_logger
+        self.max_replanning_attempts = 3
         self.max_feedback_loops = 2
+        self.max_tool_uses_per_task = 3
 
     def process_task(self, prompt: str) -> str:
         if prompt.strip().lower() == "show performance":
             return self.performance_tracker.get_performance_summary()
+        if prompt.strip().lower() == "show thoughts":
+            return self.thought_logger.format_thoughts(self.workspace.thought_process)
+
+        self.workspace.clear()
+        self.workspace.set_initial_prompt(prompt)
         
         print(f"▶️ HiPLEタスク開始: {prompt}")
         try:
             active_experts = self.model_manager.get_all_experts()
             if not active_experts: return "エラー: 利用可能なエキスパートがいません。"
 
-            print("\n--- Phase 0: Routing ---")
+            self.workspace.add_thought("orchestrator", "routing_start", "Phase 0: Routing")
             route_result = self.simple_router.route(prompt)
             task_type = route_result["type"]
+            self.workspace.add_thought("orchestrator", "routing_result", {"task_type": task_type, "query": route_result.get("query")})
             
             print(f"🧠 ルーティング結果: {task_type.upper()}")
 
             if task_type == "greeting":
-                return route_result["response"]
+                return cast(str, route_result["response"])
             
-            query = route_result["query"]
+            query = cast(str, route_result["query"])
             
             if task_type == "wikipedia":
-                return self.wikipedia_agent.execute(query, active_experts)
+                return self.tool_manager.execute_tool("wikipedia_search", query, "", active_experts)
             
             elif task_type == "web_search":
-                return "ウェブ検索機能は現在実装中です。URLを直接指定してください。"
-            
+                url = route_result.get("url", "")
+                if not url: return "ウェブ検索にはURLが必要です。"
+                return self.tool_manager.execute_tool("web_search", query, url, active_experts)
+
             elif task_type == "simple_chat":
                 return self._process_simple_task(query, active_experts)
             
@@ -99,18 +111,22 @@ class HipleOrchestrator:
 
         except Exception as e:
             traceback.print_exc()
+            self.workspace.add_thought("orchestrator", "fatal_error", {"error": str(e), "traceback": traceback.format_exc()})
             return f"致命的なエラーが発生しました: {e}"
         finally:
-            self.web_browser_service.close_browser_sync()
+            self.tool_manager.web_browser_service.close_browser_sync()
+
 
     def _process_simple_task(self, prompt: str, experts: List[ExpertModel]) -> str:
-        print("\n--- Dynamic Generation for Simple Task ---")
+        self.workspace.add_thought("orchestrator", "simple_task_start", "Dynamic Generation for Simple Task")
         expert = next((e for e in experts if e.name.lower() == "greeter"), None)
         if not expert:
             expert = self.performance_tracker.get_best_expert(experts, task_type="simple_task")
         
         if not expert:
             return "エラー: 単純応答用のエキスパートが見つかりません。"
+        
+        self.workspace.add_thought("orchestrator", "expert_selection", {"expert": expert.name, "reason": "Simple Chat"})
         
         task = SubTask(
             task_id=1,
@@ -121,58 +137,72 @@ class HipleOrchestrator:
         context = self._build_minimal_context(prompt)
 
         start_time = time.time()
-        result = self.generator_agent.execute(task, expert, context, experts)
+        response_dict = self.generator_agent.execute(task, expert, context, experts)
+        result = cast(str, response_dict.get("result", "エラー: 応答がありません。"))
         execution_time = time.time() - start_time
         
         success = result is not None and result.strip() != "" and "エラー" not in result
         self.performance_tracker.update_performance(expert.name, execution_time, success)
+        self.workspace.add_thought("orchestrator", "simple_task_end", {"result": result, "success": success})
 
         return result
+
 
     def _process_complex_task(self, prompt: str, experts: List[ExpertModel]) -> str:
         failed_plan: Optional[Plan] = None
         validation_error: Optional[str] = None
 
         for attempt in range(self.max_replanning_attempts):
-            print(f"\n--- Phase 1: Hierarchical Planning (Attempt {attempt + 1}) ---")
+            self.workspace.add_thought("orchestrator", "planning_start", f"Phase 1: Hierarchical Planning (Attempt {attempt + 1})")
             performance_summary = self.performance_tracker.get_performance_summary()
+            
             current_plan = self.planner_agent.execute(
-                prompt, experts, failed_plan, validation_error, performance_summary
+                prompt, experts, self.tool_manager, failed_plan, validation_error, performance_summary
             )
-
-            print(f"L1 (Goal): {current_plan.overall_goal}")
-            for m in current_plan.milestones:
-                print(f"L2 (Milestone {m.milestone_id}): {m.title}")
+            self.workspace.add_thought("planner_agent", "plan_generated", {"goal": current_plan.overall_goal, "milestones": [m.title for m in current_plan.milestones], "task_count": len(current_plan.tasks)})
 
             is_struct_valid, struct_error = self._validate_plan_structure(current_plan, experts)
             if not is_struct_valid:
-                print(f"⚠️ 計画の構造検証に失敗: {struct_error}")
+                self.workspace.add_thought("orchestrator", "plan_validation_failed", {"reason": "Structural error", "error": struct_error})
                 validation_error = f"構造的エラー: {struct_error}"
                 failed_plan = current_plan
                 continue
 
-            print("✅ 計画の構造は妥当です。")
+            self.workspace.add_thought("orchestrator", "plan_validation_succeeded", "Plan structure is valid.")
 
             is_semantic_valid, semantic_error = self.plan_evaluation_service.check_semantic_coherence(current_plan.tasks)
             if not is_semantic_valid:
-                print(f"⚠️ 計画の意味的一貫性検証に失敗: {semantic_error}")
+                self.workspace.add_thought("orchestrator", "plan_validation_failed", {"reason": "Semantic coherence error", "error": semantic_error})
                 validation_error = f"意味的一貫性エラー: {semantic_error}"
                 failed_plan = current_plan
                 continue
 
-            print("✅ 計画の意味的一貫性は妥当です。")
+            self.workspace.add_thought("orchestrator", "plan_validation_succeeded", "Plan semantic coherence is valid.")
+
+            self.workspace.add_thought("orchestrator", "critic_phase_start", "Phase 1c: Strategic Review by Critic Agent")
+            critic_feedback = self.critic_agent.execute(current_plan, experts)
+
+            if "計画に問題は見つかりませんでした。" not in critic_feedback:
+                self.workspace.add_thought("critic_agent", "plan_criticism_received", {"feedback": critic_feedback})
+                print(f"⚠️ 批評家からの指摘を受信: {critic_feedback}")
+                validation_error = f"批評家からの指摘: {critic_feedback}"
+                failed_plan = current_plan
+                continue
+            
+            self.workspace.add_thought("critic_agent", "plan_approved", "The plan was approved by the critic.")
+            print("✅ 計画は批評家によって承認されました。")
 
             return self._execute_plan(current_plan, experts)
 
-        print(f"❌ {self.max_replanning_attempts}回の再計画の試行後も、有効な計画を作成できませんでした。")
+        self.workspace.add_thought("orchestrator", "planning_failed", f"Failed to create a valid plan after {self.max_replanning_attempts} attempts.")
         return "エラー: 実行可能な計画を立案できませんでした。プロンプトを具体的にして再度お試しください。"
 
     def _execute_plan(self, plan: Plan, experts: List[ExpertModel]) -> str:
-        print("\n--- Phase 2a: Modular RAG Indexing ---")
+        self.workspace.add_thought("orchestrator", "execution_start", "Phase 2a: Modular RAG Indexing")
         plan_data_source = PlanDataSource(plan)
         self.rag_manager.build_index_from_source("plan_retriever", plan_data_source)
         
-        print("\n--- Phase 2b: Context-Aware Generation (HiPLE-G) ---")
+        self.workspace.add_thought("orchestrator", "execution_phase_start", "Phase 2b: Context-Aware Generation (HiPLE-G)")
         completed_tasks: Dict[int, SubTask] = {}
         worker_tasks = [t for t in plan.tasks if t.expert_name.lower() != 'reporter']
 
@@ -184,8 +214,8 @@ class HipleOrchestrator:
                     for task in worker_tasks:
                         if task.status != "completed":
                             expert = self.model_manager.get_expert(task.expert_name)
-                            if expert:
-                                self.performance_tracker.update_performance(expert.name, 0, False)
+                            if expert: self.performance_tracker.update_performance(expert.name, 0, False)
+                    self.workspace.add_thought("orchestrator", "execution_error", "Circular dependency or dead-end in plan.")
                     return "エラー: タスクの依存関係が循環しているか、計画に問題があります。"
                 break
 
@@ -195,35 +225,54 @@ class HipleOrchestrator:
                     task.result = f"エラー: エキスパート '{task.expert_name}' が見つかりませんでした。"
                     task.status = "failed"
                     completed_tasks[task.task_id] = task
+                    self.workspace.add_thought("orchestrator", "task_failed", {"task_id": task.task_id, "reason": f"Expert '{task.expert_name}' not found."})
                     continue
 
                 execution_time = 0.0
-                for loop_count in range(self.max_feedback_loops):
+                task_context: Dict[str, Any] = {}
+                
+                for loop_count in range(self.max_feedback_loops + self.max_tool_uses_per_task):
                     rag_decision = self.rag_agent.execute(task.ssv_description, experts)
                     rag_results: List[Document] = []
                     if rag_decision.get("needs_retrieval"):
                         query = rag_decision.get("query", task.ssv_description)
-                        print(f"🔍 RAG検索を実行します (Query: '{query}')")
                         rag_results = self.rag_manager.query("plan_retriever", query, k=3)
+                        self.workspace.add_thought("rag_agent", "retrieval_performed", {"query": query, "results_count": len(rag_results)})
                     
-                    context = self._build_context_for_task(task, plan, completed_tasks, rag_results)
+                    current_context = self._build_context_for_task(task, plan, completed_tasks, rag_results, task_context.get("tool_results", ""))
 
-                    print(f"\n▶️ Executing Task {task.task_id} ({task.expert_name.upper()}) Attempt {loop_count + 1}: {task.description}")
+                    self.workspace.add_thought("orchestrator", "task_execution_start", {"task_id": task.task_id, "expert": expert.name, "attempt": loop_count + 1, "description": task.description})
                     task.status = "in_progress"
                     
                     start_time = time.time()
-                    generated_output = self.generator_agent.execute(task, expert, context, experts)
-                    execution_time = time.time() - start_time
-                    
+                    response_dict = self.generator_agent.execute(task, expert, current_context, experts)
+                    execution_time += time.time() - start_time
+
+                    if response_dict.get("status") == "tool_request":
+                        tool_name = response_dict.get("tool_name", "")
+                        tool_query = response_dict.get("tool_query", "")
+                        tool_url = response_dict.get("tool_url", "")
+                        self.workspace.add_thought("generator_agent", "tool_request", {"tool_name": tool_name, "tool_query": tool_query})
+                        
+                        tool_result = self.tool_manager.execute_tool(tool_name, tool_query, tool_url, experts)
+                        self.workspace.add_thought("tool_manager", "tool_result", {"tool_name": tool_name, "result_length": len(tool_result)})
+                        
+                        task_context["tool_results"] = tool_result
+                        continue
+
+                    generated_output = response_dict.get("result", "")
+
                     if task.reviewer_expert:
                         reviewer = self.model_manager.get_expert(task.reviewer_expert)
                         if reviewer:
+                            self.workspace.add_thought("orchestrator", "review_start", {"task_id": task.task_id, "reviewer": reviewer.name})
                             feedback = self.reviewer_agent.execute(task, generated_output, reviewer, expert)
                             if "修正の必要はありません" not in feedback and "問題ありません" not in feedback:
-                                print(f"❗️ フィードバックを受け取りました。タスク {task.task_id} を再実行します。")
+                                self.workspace.add_thought("reviewer_agent", "feedback_provided", {"task_id": task.task_id, "feedback": feedback})
                                 task.feedback_history.append({"reviewer": reviewer.name, "feedback": feedback})
-                                task.result = generated_output 
+                                task_context["feedback"] = feedback
                                 continue
+                            self.workspace.add_thought("reviewer_agent", "review_passed", {"task_id": task.task_id})
                     
                     task.result = generated_output
                     break
@@ -233,26 +282,28 @@ class HipleOrchestrator:
 
                 task.status = "completed" if success else "failed"
                 completed_tasks[task.task_id] = task
-                print(f"✅ Task {task.task_id} Completed. (Status: {task.status})")
+                self.workspace.add_thought("orchestrator", "task_completed", {"task_id": task.task_id, "status": task.status})
                 
-                if not success:
-                    break
+                if not success: break
             
             if any(t.status == "failed" for t in completed_tasks.values()):
-                print("❌ 計画の実行中にタスクが失敗しました。処理を中断します。")
+                self.workspace.add_thought("orchestrator", "execution_halted", "A task failed, halting plan execution.")
                 break
-
+        
         reporter_tasks = [t for t in plan.tasks if t.expert_name.lower() == 'reporter']
         if reporter_tasks:
-             print("\n--- Phase 3: Reporting ---")
+             self.workspace.add_thought("orchestrator", "reporting_start", "Phase 3: Reporting")
              final_report = self.reporter_agent.execute(plan, experts)
+             self.workspace.set_final_answer(final_report)
              return final_report
         else:
             if not completed_tasks: return "タスクは実行されましたが、結果がありませんでした。"
             succeeded_tasks = [t for t in completed_tasks.values() if t.status == "completed"]
             if succeeded_tasks:
                 last_task = max(succeeded_tasks, key=lambda t: t.task_id)
-                return last_task.result or "完了しましたが結果がありません。"
+                final_result = last_task.result or "完了しましたが結果がありません。"
+                self.workspace.set_final_answer(final_result)
+                return final_result
             else:
                 return "エラー: 全てのタスクが失敗しました。"
 
@@ -272,7 +323,7 @@ class HipleOrchestrator:
                     return False, f"タスク {task.task_id} の依存先 {dep_id} が不正です。"
         return True, "計画は構造的に妥当です。"
 
-    def _build_context_for_task(self, task: SubTask, plan: Plan, completed_tasks: Dict[int, SubTask], rag_results: List[Document]) -> Dict[str, Any]:
+    def _build_context_for_task(self, task: SubTask, plan: Plan, completed_tasks: Dict[int, SubTask], rag_results: List[Document], tool_results: str = "") -> Dict[str, Any]:
         current_milestone = next((m for m in plan.milestones if m.milestone_id == task.milestone_id), None)
         dependency_results = ""
         if task.dependencies:
@@ -287,7 +338,8 @@ class HipleOrchestrator:
             "milestone": current_milestone,
             "ssv_description": task.ssv_description,
             "dependency_results": dependency_results,
-            "rag_results": [doc.content for doc in rag_results]
+            "rag_results": [doc.content for doc in rag_results],
+            "tool_results": tool_results
         }
 
     def _build_minimal_context(self, prompt: str) -> Dict[str, Any]:
@@ -298,3 +350,4 @@ class HipleOrchestrator:
             "dependency_results": "",
             "rag_results": []
         }
+

@@ -1,6 +1,6 @@
 # path: ./domain/schemas.py
-# title: Data Schemas with Reviewer and Feedback Loop (Fixed)
-# description: SubTaskにレビュー担当者とフィードバック履歴のフィールドを追加し、型ヒントのインポートエラーを修正。
+# title: Data Schemas with Cost and Speed Metrics
+# description: ExpertModelにコストと速度の評価指標を追加し、より多角的なエキスパート選択を可能にする。
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Any, Union, Dict, TYPE_CHECKING
@@ -24,6 +24,10 @@ class ExpertModel:
     execution_strategy: str = "inline" # "inline" or "worker"
     enabled: bool = False
     keywords: List[str] = field(default_factory=list)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    cost_score: int = 5  # コスト評価 (1: low, 10: high)
+    speed_score: int = 5 # 速度評価 (1: slow, 10: fast)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     instance: Optional[Union[Llama, "DiffusionPipeline"]] = None
     is_loaded: bool = False
 

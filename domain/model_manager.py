@@ -1,6 +1,6 @@
 # path: ./domain/model_manager.py
-# title: ModelManager with Dynamic Model Assignment
-# description: .envファイルの設定に基づき、YAMLで定義されたエキスパート設定を動的に読み込む。
+# title: ModelManager with Dynamic Model Assignment (Cost/Speed Aware)
+# description: .envとmodels.ymlからエキスパートを動的に読み込む際に、コストと速度のスコアも反映させる。
 
 import os
 import yaml
@@ -27,12 +27,10 @@ class ModelManager:
 
         all_definitions = config.get("worker_experts", {})
         
-        # .envから "jamba:jamba_default, hrm:hrm_alternative" のようなマッピング文字列を取得
         expert_mapping_str = os.getenv("EXPERT_MAPPING")
         if not expert_mapping_str:
             raise ValueError(".envファイルにEXPERT_MAPPINGが設定されていません。")
 
-        # マッピングを辞書に変換: {"jamba": "jamba_default", "hrm": "hrm_alternative"}
         try:
             expert_mapping = dict(item.strip().split(':') for item in expert_mapping_str.split(','))
         except ValueError:
@@ -58,7 +56,6 @@ class ModelManager:
             if is_diffusion_model:
                 model_id = settings.get("model_id")
             else:
-                # YAMLの model_env_key を使って .env からモデルパスを取得
                 model_env_key = settings.get("model_env_key")
                 if model_env_key:
                     model_path = os.getenv(model_env_key)
@@ -67,8 +64,8 @@ class ModelManager:
                     print(f"⚠️ 警告: エキスパート '{settings.get('name', definition_key)}' のモデルパス (環境変数: {model_env_key}) が見つかりません。スキップします。")
                     continue
             
-            # expert_typeをキーとして登録
             expert_name = settings.get("name", expert_type)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
             loaded_experts[expert_name.lower()] = ExpertModel(
                 name=expert_name,
                 description=settings.get("description", ""),
@@ -78,8 +75,11 @@ class ModelManager:
                 system_prompt=settings.get("system_prompt", ""),
                 execution_strategy=settings.get("execution_strategy", "inline"),
                 keywords=settings.get("keywords", []),
+                cost_score=settings.get("cost_score", 5),
+                speed_score=settings.get("speed_score", 5),
                 enabled=True
             )
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         if not loaded_experts:
             raise ValueError("有効なエキスパートが一人も設定されていません。.envとmodels.ymlを確認してください。")

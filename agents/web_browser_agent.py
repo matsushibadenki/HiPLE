@@ -6,6 +6,7 @@ from typing import List
 from bs4 import BeautifulSoup
 from agents.base_agent import BaseAgent
 from domain.schemas import ExpertModel
+from llama_cpp.llama_types import ChatCompletionRequestMessage
 
 class WebBrowserAgent(BaseAgent):
     """
@@ -50,7 +51,7 @@ class WebBrowserAgent(BaseAgent):
 
 質問に対する回答を生成してください。
 """
-        messages = [
+        messages: List[ChatCompletionRequestMessage] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]

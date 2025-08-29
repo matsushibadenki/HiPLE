@@ -1,6 +1,6 @@
 # path: ./config/models.yml
-# title: AI Expert Definition with Flexible Model Assignment
-# description: 各エキスパートの定義を汎用化し、.envファイルから動的にモデルを割り当てられるように修正。
+# title: AI Expert Definition with Cost and Speed Scores
+# description: 各エキスパートにコストと速度の指標を追加し、動的プランニングの判断材料を提供する。
 
 worker_experts:
   # --- General Purpose Experts ---
@@ -13,6 +13,8 @@ worker_experts:
     system_prompt: "あなたは、誠実で優秀なAIアシスタントです。"
     enabled: true
     execution_strategy: "inline"
+    cost_score: 2
+    speed_score: 9
 
   greeter:
     name: "Greeter"
@@ -20,9 +22,11 @@ worker_experts:
     expert_type: "jamba" # GreeterもJamba系の軽量モデルを想定
     model_env_key: "GREETER_MODEL"
     chat_format: "chatml"
-    system_prompt: "あなたは、ユーザーの挨拶や簡単なチャ-ットに、フレンドリーかつ簡潔に日本語で応答するAIアシスタントです。常に親切なトーンを心がけてください。"
+    system_prompt: "あなたは、ユーザーの挨拶や簡単なチャットに、フレンドリーかつ簡潔に日本語で応答するAIアシスタントです。常に親切なトーンを心がけてください。"
     enabled: true
     execution_strategy: "inline"
+    cost_score: 1
+    speed_score: 10
 
   # --- Reasoning Experts ---
   hrm_default:
@@ -34,6 +38,8 @@ worker_experts:
     system_prompt: "You are a logical reasoner. Think step by step to solve the problem."
     enabled: true
     execution_strategy: "inline"
+    cost_score: 6
+    speed_score: 5
 
   reporter:
     name: "Reporter"
@@ -44,6 +50,8 @@ worker_experts:
     system_prompt: "あなたは優秀なテクニカルライターです。提供された全タスクの結果を元に、ユーザーの元の要求に対する包括的で分かりやすい最終報告書を作成してください。"
     enabled: true
     execution_strategy: "inline"
+    cost_score: 5
+    speed_score: 6
 
   # --- Coding Experts ---
   transformer_default:
@@ -55,6 +63,8 @@ worker_experts:
     system_prompt: "You are a helpful and intelligent assistant for coding. Provide clean, efficient, and well-commented code."
     enabled: true
     execution_strategy: "inline"
+    cost_score: 5
+    speed_score: 7
 
   # --- Specialized Experts ---
   liquids4_default:
@@ -66,6 +76,8 @@ worker_experts:
     system_prompt: "You are an expert in summarizing and analyzing long texts. Provide a clear, concise, and logical summary."
     enabled: false # デフォルトでは無効
     execution_strategy: "inline"
+    cost_score: 8
+    speed_score: 3
 
   # --- Vision Experts ---
   visualizer_default:
@@ -77,3 +89,5 @@ worker_experts:
     system_prompt: "You are a creative visualizer. Generate an image based on the user's prompt."
     enabled: true
     execution_strategy: "inline"
+    cost_score: 9
+    speed_score: 2

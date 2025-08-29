@@ -1,6 +1,6 @@
 # path: ./container/container.py
-# title: DI Container with Simple Router
-# description: DIコンテナを更新し、LLMベースのToolRouterAgentを廃止して、新しいSimpleRouterを使用する。
+# title: DI Container with ToolManagerService
+# description: ToolManagerServiceをDIコンテナに追加し、OrchestratorとPlannerAgentに注入する。
 
 from dependency_injector import containers, providers
 from domain.model_manager import ModelManager
@@ -11,6 +11,7 @@ from services.plan_evaluation_service import PlanEvaluationService
 from services.performance_tracker_service import PerformanceTrackerService
 from services.rag_manager_service import RAGManagerService
 from services.web_browser_service import WebBrowserService
+from services.tool_manager_service import ToolManagerService
 from rag.retrievers import FaissRetriever
 from orchestrator.hiple_orchestrator import HipleOrchestrator
 from orchestrator.router import SimpleRouter
@@ -22,6 +23,9 @@ from agents.wikipedia_agent import WikipediaAgent
 from agents.web_browser_agent import WebBrowserAgent
 from agents.rag_agent import RAGAgent
 from agents.reviewer_agent import ReviewerAgent
+from agents.critic_agent import CriticAgent
+from workspace.global_workspace import GlobalWorkspace
+from utils.thought_logger import ThoughtLogger
 
 class Container(containers.DeclarativeContainer):
     """
@@ -29,6 +33,10 @@ class Container(containers.DeclarativeContainer):
     アプリケーションの依存関係を管理します。
     """
     config_path = providers.Configuration()
+
+    # --- Workspace & Utilities ---
+    global_workspace = providers.Singleton(GlobalWorkspace)
+    thought_logger = providers.Factory(ThoughtLogger)
 
     # --- Services ---
     model_loader = providers.Singleton(ModelLoaderService)
@@ -61,8 +69,23 @@ class Container(containers.DeclarativeContainer):
     simple_router = providers.Factory(SimpleRouter)
 
     # --- Agents (Engines) ---
+    wikipedia_agent = providers.Factory(
+        WikipediaAgent,
+        model_loader=model_loader
+    )
+
+    web_browser_agent = providers.Factory(
+        WebBrowserAgent,
+        model_loader=model_loader
+    )
+
     planner_agent = providers.Factory(
         PlannerAgent,
+        model_loader=model_loader,
+    )
+
+    critic_agent = providers.Factory(
+        CriticAgent,
         model_loader=model_loader
     )
     
@@ -83,16 +106,6 @@ class Container(containers.DeclarativeContainer):
         model_loader=model_loader
     )
     
-    wikipedia_agent = providers.Factory(
-        WikipediaAgent,
-        model_loader=model_loader
-    )
-
-    web_browser_agent = providers.Factory(
-        WebBrowserAgent,
-        model_loader=model_loader
-    )
-
     rag_agent = providers.Factory(
         RAGAgent,
         model_loader=model_loader
@@ -103,21 +116,31 @@ class Container(containers.DeclarativeContainer):
         model_loader=model_loader
     )
 
+    # --- Tool Management ---
+    tool_manager = providers.Singleton(
+        ToolManagerService,
+        wikipedia_agent=wikipedia_agent,
+        web_browser_agent=web_browser_agent,
+        web_browser_service=web_browser_service,
+    )
+
     # --- Orchestrator ---
     hiple_orchestrator = providers.Factory(
         HipleOrchestrator,
         model_manager=model_manager,
         simple_router=simple_router,
         planner_agent=planner_agent,
+        critic_agent=critic_agent,
         generator_agent=generator_agent,
         reporter_agent=reporter_agent,
-        wikipedia_agent=wikipedia_agent,
-        web_browser_agent=web_browser_agent,
-        web_browser_service=web_browser_service,
         reviewer_agent=reviewer_agent,
         plan_evaluation_service=plan_evaluation_service,
         performance_tracker=performance_tracker,
         rag_agent=rag_agent,
         rag_manager=rag_manager,
-        faiss_retriever=faiss_retriever
+        faiss_retriever=faiss_retriever,
+        tool_manager=tool_manager,
+        global_workspace=global_workspace,
+        thought_logger=thought_logger
     )
+
