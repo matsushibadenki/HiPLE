@@ -1,6 +1,5 @@
-# path: ./orchestrator/router.py
-# title: Simple Keyword-Based Router
-# description: A non-LLM router that determines the task type based on keywords and simple heuristics.
+# /matsushibadenki/hiple/HiPLE-6a124133fd7537b5a7a4c8834c276a4900c47121/orchestrator/router.py
+# このコードは、ユーザーの要求を分析し、適切な機能へ振り分ける役割を担います。Wikipedia検索の精度を向上させるため、検索クエリの生成ロジックを修正しました。
 
 from typing import Dict, Any, List
 
@@ -44,9 +43,15 @@ class SimpleRouter:
         for tool, keywords in self.tool_keywords.items():
             for keyword in keywords:
                 if keyword in normalized_prompt:
-                    # キーワードを除いた部分をクエリとして抽出することを試みる
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                    # Wikipediaの場合は、検索精度向上のため元のプロンプト全体をクエリとして渡す
+                    if tool == "wikipedia":
+                        return {"type": "wikipedia", "query": prompt}
+                    
+                    # それ以外のツールはキーワードを除いた部分をクエリとして抽出することを試みる
                     query = prompt.replace(keyword, "").strip()
                     return {"type": tool, "query": query if query else prompt}
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         # 3. 上記に当てはまらない場合は、複雑なタスクとして計画立案に回す
         return {"type": "complex_task", "query": prompt}
