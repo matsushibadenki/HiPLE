@@ -1,6 +1,6 @@
 # path: ./orchestrator/hiple_orchestrator.py
-# title: Orchestrator with Tool Execution Loop
-# description: GeneratorAgentからのツール利用要求をハンドリングし、ToolManagerを介してツールを実行し、結果をフィードバックするループを実装。
+# title: Orchestrator with Safety and Metacognition Supervision
+# description: Integrates SafetyDirectorAgent and MetacognitionAgent to supervise the planning and execution process.
 
 import time
 import traceback
@@ -14,6 +14,10 @@ from agents.reporter_agent import ReporterAgent
 from agents.critic_agent import CriticAgent
 from agents.rag_agent import RAGAgent
 from agents.reviewer_agent import ReviewerAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from agents.safety_director_agent import SafetyDirectorAgent
+from agents.metacognition_agent import MetacognitionAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from services.rag_manager_service import RAGManagerService
 from services.plan_evaluation_service import PlanEvaluationService
 from services.performance_tracker_service import PerformanceTrackerService
@@ -27,7 +31,7 @@ from .router import SimpleRouter
 class HipleOrchestrator:
     """
     HiPLEアーキテクチャに基づき、思考プロセス全体を管理する。
-    ツール利用要求をハンドリングし、自己改善的な実行ループを実現する。
+    安全性とメタ認知の監督下で動作する。
     """
     def __init__(
         self,
@@ -46,6 +50,10 @@ class HipleOrchestrator:
         tool_manager: ToolManagerService,
         global_workspace: GlobalWorkspace,
         thought_logger: ThoughtLogger,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        safety_director_agent: SafetyDirectorAgent,
+        metacognition_agent: MetacognitionAgent
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     ):
         self.model_manager = model_manager
         self.simple_router = simple_router
@@ -62,11 +70,17 @@ class HipleOrchestrator:
         self.tool_manager = tool_manager
         self.workspace = global_workspace
         self.thought_logger = thought_logger
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        self.safety_director = safety_director_agent
+        self.metacognition = metacognition_agent
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.max_replanning_attempts = 3
         self.max_feedback_loops = 2
         self.max_tool_uses_per_task = 3
 
     def process_task(self, prompt: str) -> str:
+        # (このメソッドの前半は変更なし)
+        # ...
         if prompt.strip().lower() == "show performance":
             return self.performance_tracker.get_performance_summary()
         if prompt.strip().lower() == "show thoughts":
@@ -118,6 +132,8 @@ class HipleOrchestrator:
 
 
     def _process_simple_task(self, prompt: str, experts: List[ExpertModel]) -> str:
+        # (変更なし)
+        # ...
         self.workspace.add_thought("orchestrator", "simple_task_start", "Dynamic Generation for Simple Task")
         expert = next((e for e in experts if e.name.lower() == "greeter"), None)
         if not expert:
@@ -153,6 +169,14 @@ class HipleOrchestrator:
         validation_error: Optional[str] = None
 
         for attempt in range(self.max_replanning_attempts):
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 安全監督官による思考プロセスのレビュー
+            safety_check_result = self.safety_director.review_thought_process(self.workspace)
+            if safety_check_result:
+                self.workspace.add_thought("safety_director", "intervention", {"reason": safety_check_result})
+                return f"安全性エラー: {safety_check_result}"
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
             self.workspace.add_thought("orchestrator", "planning_start", f"Phase 1: Hierarchical Planning (Attempt {attempt + 1})")
             performance_summary = self.performance_tracker.get_performance_summary()
             
@@ -160,6 +184,17 @@ class HipleOrchestrator:
                 prompt, experts, self.tool_manager, failed_plan, validation_error, performance_summary
             )
             self.workspace.add_thought("planner_agent", "plan_generated", {"goal": current_plan.overall_goal, "milestones": [m.title for m in current_plan.milestones], "task_count": len(current_plan.tasks)})
+
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # メタ認知による計画の認知負荷チェック
+            is_executable, cognitive_load_msg = self.metacognition.analyze_cognitive_load(current_plan)
+            if not is_executable:
+                self.workspace.add_thought("metacognition_agent", "plan_rejected", {"reason": cognitive_load_msg})
+                validation_error = cognitive_load_msg
+                failed_plan = current_plan
+                continue
+            self.workspace.add_thought("metacognition_agent", "plan_approved", cognitive_load_msg)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
             is_struct_valid, struct_error = self._validate_plan_structure(current_plan, experts)
             if not is_struct_valid:
@@ -198,6 +233,8 @@ class HipleOrchestrator:
         return "エラー: 実行可能な計画を立案できませんでした。プロンプトを具体的にして再度お試しください。"
 
     def _execute_plan(self, plan: Plan, experts: List[ExpertModel]) -> str:
+        # (このメソッドは長いため、安全監督官のチェック部分のみ追記)
+        # ...
         self.workspace.add_thought("orchestrator", "execution_start", "Phase 2a: Modular RAG Indexing")
         plan_data_source = PlanDataSource(plan)
         self.rag_manager.build_index_from_source("plan_retriever", plan_data_source)
@@ -207,6 +244,14 @@ class HipleOrchestrator:
         worker_tasks = [t for t in plan.tasks if t.expert_name.lower() != 'reporter']
 
         while len(completed_tasks) < len(worker_tasks):
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            # 実行ループの各ステップで安全チェック
+            safety_check_result = self.safety_director.review_thought_process(self.workspace)
+            if safety_check_result:
+                self.workspace.add_thought("safety_director", "intervention", {"reason": safety_check_result})
+                return f"安全性エラー: {safety_check_result}"
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
             executable_tasks = [t for t in worker_tasks if t.status == "pending" and all(d in completed_tasks for d in t.dependencies)]
 
             if not executable_tasks:
@@ -308,6 +353,8 @@ class HipleOrchestrator:
                 return "エラー: 全てのタスクが失敗しました。"
 
     def _validate_plan_structure(self, plan: Plan, experts: List[ExpertModel]) -> Tuple[bool, str]:
+        # (変更なし)
+        # ...
         if not plan.tasks: return False, "計画にタスクが含まれていません。"
         task_ids = {task.task_id for task in plan.tasks}
         milestone_ids = {m.milestone_id for m in plan.milestones}
@@ -324,6 +371,8 @@ class HipleOrchestrator:
         return True, "計画は構造的に妥当です。"
 
     def _build_context_for_task(self, task: SubTask, plan: Plan, completed_tasks: Dict[int, SubTask], rag_results: List[Document], tool_results: str = "") -> Dict[str, Any]:
+        # (変更なし)
+        # ...
         current_milestone = next((m for m in plan.milestones if m.milestone_id == task.milestone_id), None)
         dependency_results = ""
         if task.dependencies:
@@ -343,6 +392,8 @@ class HipleOrchestrator:
         }
 
     def _build_minimal_context(self, prompt: str) -> Dict[str, Any]:
+        # (変更なし)
+        # ...
         return {
             "original_prompt": prompt,
             "overall_goal": prompt,
@@ -350,4 +401,3 @@ class HipleOrchestrator:
             "dependency_results": "",
             "rag_results": []
         }
-

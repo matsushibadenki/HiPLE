@@ -1,6 +1,6 @@
 # path: ./container/container.py
-# title: DI Container with ToolManagerService
-# description: ToolManagerServiceをDIコンテナに追加し、OrchestratorとPlannerAgentに注入する。
+# title: DI Container with Safety and Metacognition Agents
+# description: Adds SafetyDirectorAgent and MetacognitionAgent to the DI container.
 
 from dependency_injector import containers, providers
 from domain.model_manager import ModelManager
@@ -24,6 +24,10 @@ from agents.web_browser_agent import WebBrowserAgent
 from agents.rag_agent import RAGAgent
 from agents.reviewer_agent import ReviewerAgent
 from agents.critic_agent import CriticAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+from agents.safety_director_agent import SafetyDirectorAgent
+from agents.metacognition_agent import MetacognitionAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from workspace.global_workspace import GlobalWorkspace
 from utils.thought_logger import ThoughtLogger
 
@@ -67,6 +71,12 @@ class Container(containers.DeclarativeContainer):
     
     # --- Router ---
     simple_router = providers.Factory(SimpleRouter)
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # --- Safety and Metacognition ---
+    safety_director_agent = providers.Factory(SafetyDirectorAgent)
+    metacognition_agent = providers.Factory(MetacognitionAgent)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     # --- Agents (Engines) ---
     wikipedia_agent = providers.Factory(
@@ -141,6 +151,9 @@ class Container(containers.DeclarativeContainer):
         faiss_retriever=faiss_retriever,
         tool_manager=tool_manager,
         global_workspace=global_workspace,
-        thought_logger=thought_logger
+        thought_logger=thought_logger,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        safety_director_agent=safety_director_agent,
+        metacognition_agent=metacognition_agent
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     )
-
