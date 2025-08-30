@@ -1,6 +1,6 @@
 # path: ./agents/rag_agent.py
-# title: RAG Agent
-# description: Determines if retrieval is necessary for a given prompt and formulates a search query.
+# title: RAG Agent (Self-Evaluation Aware)
+# description: Determines if retrieval is necessary and provides self-evaluated decision.
 
 import json
 import re
@@ -18,7 +18,6 @@ class RAGAgent(BaseAgent):
         """
         プロンプトを分析し、検索の要否と検索クエリを含む辞書を返す。
         """
-        # 判断には論理的推論が得意なHRMモデルを使用
         router_expert = self._find_expert("HRM", experts)
 
         system_prompt = """あなたはユーザーのタスク記述を分析し、そのタスクを達成するために内部知識ベース（過去の計画やタスクの文脈）の検索が必要かどうかを判断する、優秀なアシスタントです。
@@ -36,7 +35,7 @@ class RAGAgent(BaseAgent):
 - `needs_retrieval: true`: タスクが先行するタスクの結果や、計画全体の目標、他のマイルストーンなど、過去の文脈情報を明確に必要としている場合。`query`には、その文脈を最もよく表すキーワードを指定します。（例：タスク「上記の結果を要約する」 -> query: "先行タスクの結果"）
 - `needs_retrieval: false`: タスクが自己完結しており、外部の文脈情報なしに実行可能な場合。（例：タスク「Pythonで'Hello World'を出力するコードを書く」）
 
-ユーザーのタスク記述を慎重に読み、上記のJSON形式で応答してください。
+ユーザーのタスク記述を慎重に読み、上記のJSON形式を、自己評価JSONの`response`キーに含めて応答してください。
 """
 
         messages: List[ChatCompletionRequestMessage] = [
@@ -44,30 +43,34 @@ class RAGAgent(BaseAgent):
             {"role": "user", "content": prompt}
         ]
 
-        raw_response = self._query_llm(router_expert, messages)
+        response_data = self._query_llm(router_expert, messages)
         
+        # 応答がJSON文字列で返ってくる場合があるため、パースを試みる
+        raw_response_content = response_data.get("response", "{}")
         try:
-            # 応答からJSONを抽出
-            json_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', raw_response, re.DOTALL)
-            if json_match:
-                response_json_str = json_match.group(1)
+            if isinstance(raw_response_content, str):
+                 # LLMがresponseキーの中にさらにJSON文字列を生成する場合がある
+                json_match = re.search(r'\{[\s\S]*\}', raw_response_content)
+                if json_match:
+                    decision_json = json.loads(json_match.group(0))
+                else:
+                    decision_json = {}
             else:
-                response_json_str = raw_response[raw_response.find('{'):raw_response.rfind('}')+1]
+                decision_json = raw_response_content
 
-            data = json.loads(response_json_str)
-            
-            # 型と値の検証
-            needs_retrieval = data.get("needs_retrieval", False)
+            needs_retrieval = decision_json.get("needs_retrieval", False)
             if not isinstance(needs_retrieval, bool):
                 needs_retrieval = str(needs_retrieval).lower() == 'true'
-
-            query = data.get("query") if needs_retrieval else None
-
-            return {"needs_retrieval": needs_retrieval, "query": query}
-
+            
+            query = decision_json.get("query") if needs_retrieval else None
+            
+            response_data["response"] = {"needs_retrieval": needs_retrieval, "query": query}
+        
         except (json.JSONDecodeError, AttributeError):
-            # パース失敗時は安全策として検索不要と判断
-            return {"needs_retrieval": False, "query": None}
+             response_data["response"] = {"needs_retrieval": False, "query": None}
+        
+        return response_data
+
 
     def _find_expert(self, name: str, experts: List[ExpertModel]) -> ExpertModel:
         for expert in experts:

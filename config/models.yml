@@ -1,7 +1,8 @@
 # path: ./config/models.yml
-# title: AI Expert Definition with Cost and Speed Scores
+# title: AI Expert Definition with Self-Evolution Note
 # description: 各エキスパートにコストと速度の指標を追加し、動的プランニングの判断材料を提供する。
 
+# SELF-EVOLUTION: The 'enabled' flag of experts can be modified by the EvolutionService based on performance.
 worker_experts:
   # --- General Purpose Experts ---
   jamba_default:

@@ -1,6 +1,6 @@
 # path: ./domain/schemas.py
-# title: Data Schemas with Cost and Speed Metrics
-# description: ExpertModelにコストと速度の評価指標を追加し、より多角的なエキスパート選択を可能にする。
+# title: Data Schemas with Self-Evaluation Field
+# description: SubTaskに自己評価（自信度と理由）を記録するフィールドを追加。
 
 from dataclasses import dataclass, field
 from typing import List, Optional, Any, Union, Dict, TYPE_CHECKING
@@ -24,10 +24,8 @@ class ExpertModel:
     execution_strategy: str = "inline" # "inline" or "worker"
     enabled: bool = False
     keywords: List[str] = field(default_factory=list)
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     cost_score: int = 5  # コスト評価 (1: low, 10: high)
     speed_score: int = 5 # 速度評価 (1: slow, 10: fast)
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     instance: Optional[Union[Llama, "DiffusionPipeline"]] = None
     is_loaded: bool = False
 
@@ -47,6 +45,9 @@ class SubTask:
     result: Optional[str] = None
     status: str = "pending"
     milestone_id: Optional[int] = None
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    self_evaluation: Optional[Dict[str, Any]] = None # 自己評価（自信度、理由など）
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
 
 @dataclass

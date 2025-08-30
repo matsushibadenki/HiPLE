@@ -1,8 +1,8 @@
 # path: ./agents/critic_agent.py
-# title: Critic Agent for Plan Evaluation
-# description: A specialized agent that reviews a generated plan for strategic flaws and inefficiencies.
+# title: Critic Agent (Self-Evaluation Aware)
+# description: A specialized agent that reviews a generated plan and provides self-evaluated feedback.
 
-from typing import List
+from typing import List, Dict, Any
 from llama_cpp.llama_types import ChatCompletionRequestMessage
 from domain.schemas import Plan, ExpertModel
 from agents.base_agent import BaseAgent
@@ -37,24 +37,20 @@ class CriticAgent(BaseAgent):
             {"role": "user", "content": plan_str}
         ]
         
-        feedback = self._query_llm(critic_expert, messages)
+        response_data = self._query_llm(critic_expert, messages)
+        feedback = response_data.get("response", "批評家エージェントからの応答がありません。")
         print(f"🧐 批評家エージェントによる計画レビューが完了しました。")
         return feedback
 
     def _find_critic_expert(self, experts: List[ExpertModel]) -> ExpertModel:
-        # 批評にも論理的推論が得意なHRMモデルを利用
         for expert in experts:
             if expert.name.lower() == "hrm":
                 return expert
-        # フォールバック
-        for expert in experts:
-            if expert.chat_format != "diffusion": return expert
+        fallback = next((e for e in experts if e.chat_format != "diffusion"), None)
+        if fallback: return fallback
         raise ValueError("利用可能な批評家エキスパートが見つかりません。")
 
     def _format_plan_for_review(self, plan: Plan) -> str:
-        """
-        PlanオブジェクトをLLMがレビューしやすい文字列形式に変換する。
-        """
         lines = [f"# レビュー対象の計画: {plan.overall_goal}\n"]
 
         for milestone in sorted(plan.milestones, key=lambda m: m.milestone_id):

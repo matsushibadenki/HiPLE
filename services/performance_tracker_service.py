@@ -1,9 +1,9 @@
 # path: ./services/performance_tracker_service.py
-# title: Performance Tracker Service (with Robust Fallback)
-# description: AIエキスパートのパフォーマンスをより正確に追跡・評価し、最適なエキスパートを選択するサービス。フォールバックロジックを強化。
+# title: Performance Tracker Service (with Underperformer Detection)
+# description: AIエキスパートのパフォーマンスを追跡・評価し、低パフォーマンスのエキスパートを特定する機能を追加。
 
 import time
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 from domain.evaluation import PerformanceMetrics
 from domain.schemas import ExpertModel
 
@@ -28,7 +28,6 @@ class PerformanceTrackerService:
 
         record = self.performance_records[expert_name]
         
-        # 実行時間は成功・失敗に関わらず記録
         record.total_execution_time_all += execution_time
         
         if success:
@@ -40,78 +39,75 @@ class PerformanceTrackerService:
         self._recalculate_score(expert_name)
         print(f"📊 Performance updated for '{expert_name}': Score={record.score:.2f}, SuccessRate={record.success_rate:.2f}, AvgTime={record.average_execution_time:.2f}s")
 
-
     def _recalculate_score(self, expert_name: str) -> None:
         """
         エキスパートのスコアを再計算する
-        スコア = 成功率を重視しつつ、実行時間が短いほど高評価
         """
         record = self.performance_records.get(expert_name)
         if not record or record.total_runs == 0:
             return
 
-        # 全エキスパートの平均実行時間を計算（スコア正規化のため）
-        all_avg_times = [
-            r.average_execution_time
-            for r in self.performance_records.values()
-            if r.total_runs > 0
-        ]
-        
-        # ゼロ除算と空リストのエラーを回避
+        all_avg_times = [r.average_execution_time for r in self.performance_records.values() if r.total_runs > 0]
         max_avg_time = max(all_avg_times) if all_avg_times else 1.0
         if max_avg_time == 0: max_avg_time = 1.0
         
         normalized_time = record.average_execution_time / max_avg_time
         time_penalty = min(normalized_time, 1.0)
 
-        # スコア計算（成功率を主軸に、実行時間が短いほどボーナス）
         record.score = record.success_rate * (1.0 - (time_penalty * 0.2))
-
 
     def get_best_expert(self, experts: List[ExpertModel], task_type: str = "general") -> Optional[ExpertModel]:
         """
         現在最もスコアの高い、利用可能なエキスパートを返す。
-        適切なエキスパートが見つからない場合は、安定したフォールバックを提供する。
         """
         best_expert: Optional[ExpertModel] = None
         highest_score = -1.0
 
-        # 評価記録があるエキスパートのみを対象
-        eligible_experts = [
-            e for e in experts if e.name in self.performance_records and e.chat_format != "diffusion"
-        ]
+        eligible_experts = [e for e in experts if e.name in self.performance_records and e.chat_format != "diffusion"]
 
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-        # スコアが0より大きいエキスパートの中から最適解を探す
         for expert in eligible_experts:
             score = self.performance_records[expert.name].score
             if score > highest_score:
                 highest_score = score
                 best_expert = expert
         
-        # スコアに基づく最適なエキスパートが見つかった場合はそれを返す
         if best_expert:
             print(f"🏆 Best expert selected for '{task_type}': '{best_expert.name}' (Score: {highest_score:.2f})")
             return best_expert
 
-        # 適切なエキスパートが見つからない場合の、堅牢なフォールバック戦略
         print(f"🟡 No expert with a positive score for '{task_type}'. Using fallback strategy.")
         
-        # 1. 思考の中心であるHRMを試す
         hrm_expert = next((e for e in experts if e.name.lower() == "hrm"), None)
         if hrm_expert:
             print("↪️ Fallback to default reasoner: 'HRM'")
             return hrm_expert
             
-        # 2. 汎用的なJambaを試す
         jamba_expert = next((e for e in experts if e.name.lower() == "jamba"), None)
         if jamba_expert:
             print("↪️ Fallback to generalist: 'Jamba'")
             return jamba_expert
 
-        # 3. それでも見つからない場合、最初のエキスパートを返す
         return next((e for e in experts if e.chat_format != "diffusion"), None)
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    def get_underperforming_experts(self, run_threshold: int = 3, success_rate_threshold: float = 0.5) -> List[Tuple[str, PerformanceMetrics]]:
+        """
+        パフォーマンスが基準値を下回るエキスパートのリストを返す。
+
+        Args:
+            run_threshold (int): 評価の対象となる最小実行回数。
+            success_rate_threshold (float): この成功率を下回ると「低パフォーマンス」と見なされる。
+
+        Returns:
+            List[Tuple[str, PerformanceMetrics]]: (エキスパート名, パフォーマンスメトリクス) のタプルのリスト。
+        """
+        underperformers = []
+        for name, record in self.performance_records.items():
+            if record.total_runs >= run_threshold and record.success_rate < success_rate_threshold:
+                underperformers.append((name, record))
+        
+        return underperformers
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def get_performance_summary(self) -> str:
         """

@@ -1,8 +1,8 @@
 # path: ./agents/reviewer_agent.py
-# title: Reviewer Agent
-# description: 他のエキスパートが生成した成果物をレビューし、改善のためのフィードバックを提供するエージェント。
+# title: Reviewer Agent (Self-Evaluation Aware)
+# description: 他のエキスパートが生成した成果物をレビューし、自己評価付きのフィードバックを提供するエージェント。
 
-from typing import List
+from typing import List, Dict, Any
 from llama_cpp.llama_types import ChatCompletionRequestMessage
 from agents.base_agent import BaseAgent
 from domain.schemas import ExpertModel, SubTask
@@ -17,7 +17,7 @@ class ReviewerAgent(BaseAgent):
         generated_output: str,
         reviewer_expert: ExpertModel,
         original_expert: ExpertModel
-    ) -> str:
+    ) -> Dict[str, Any]:
         """
         生成された成果物をレビューし、改善点を指摘する。
         """
@@ -47,6 +47,6 @@ class ReviewerAgent(BaseAgent):
             {"role": "user", "content": user_prompt}
         ]
         
-        feedback = self._query_llm(reviewer_expert, messages)
+        feedback_data = self._query_llm(reviewer_expert, messages)
         print(f"📝 レビューが完了しました。")
-        return feedback
+        return feedback_data

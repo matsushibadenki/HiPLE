@@ -1,6 +1,6 @@
 # path: ./agents/generator_agent.py
-# title: GeneratorAgent with Tool Handling
-# description: エキスパートの応答を解析し、ツール利用要求を検知してオーケストレーターに処理を委譲する。
+# title: GeneratorAgent with Self-Evaluation Handling
+# description: エキスパートの応答と自己評価を受け取り、タスクオブジェクトに記録する。
 
 import os
 import uuid
@@ -18,8 +18,7 @@ from diffusers import DiffusionPipeline
 
 class GeneratorAgent(BaseAgent):
     """
-    エキスパートの実行戦略に応じてタスクを実行するエージェント (HiPLE-G)
-    ツール利用要求を検知し、オーケストレーターに処理を委譲する。
+    エキスパートの実行戦略に応じてタスクを実行し、自己評価を記録するエージェント (HiPLE-G)
     """
     def __init__(self, model_loader: ModelLoaderService, worker_manager: WorkerManagerService, consultant_agent: ConsultantAgent):
         super().__init__(model_loader)
@@ -30,45 +29,52 @@ class GeneratorAgent(BaseAgent):
         
         if expert.chat_format == "diffusion":
             result = self._generate_image(expert, task.description)
+            task.self_evaluation = {"confidence": 0.9, "reasoning": "Image generated."}
             return {"status": "completed", "result": result}
         
         consultation_feedback = ""
         if task.consultation_experts:
-            consultation_feedback = self.consultant_agent.execute(
+            consultation_result = self.consultant_agent.execute(
                 original_task=task,
                 primary_expert=expert,
                 all_experts=all_experts
             )
+            consultation_feedback = consultation_result.get("response", "")
         
         messages = self._build_messages_with_context(task, expert, context, consultation_feedback)
         
-        raw_response = ""
+        response_data: Dict[str, Any] = {}
         try:
             if expert.execution_strategy == "worker":
-                response_data = self.worker_manager.invoke_llm_worker(expert, messages)
-                if ("choices" in response_data and response_data["choices"] and
-                    "message" in response_data["choices"][0] and
-                    "content" in response_data["choices"][0]["message"]):
-                    raw_response = response_data["choices"][0]["message"]["content"] or ""
-                else:
-                    raise WorkerExecutionError(f"ワーカーからの応答形式が不正です: {response_data}")
+                response_dict_from_worker = self.worker_manager.invoke_llm_worker(expert, messages)
+                raw_response_str = response_dict_from_worker.get("choices", [{}])[0].get("message", {}).get("content", "")
+                # ワーカーからの応答を自己評価形式にパースする試み
+                try:
+                    parsed_data = self._parse_self_evaluation_from_str(raw_response_str)
+                    response_data = parsed_data
+                except (json.JSONDecodeError, KeyError):
+                    response_data = {"response": raw_response_str, "self_evaluation": {"confidence": 0.75, "reasoning": "Evaluation from worker could not be parsed."}}
             else:
-                raw_response = self._query_llm(expert, messages)
+                response_data = self._query_llm(expert, messages)
         except WorkerExecutionError as e:
             print(f"❌ ワーカーの実行に失敗しました: {e}")
             return {"status": "failed", "result": f"エキスパート '{expert.name}' の実行中にエラーが発生しました。"}
 
-        tool_use_match = re.search(r'```json\s*(\{[\s\S]*?"tool_use"[\s\S]*?\})\s*```', raw_response, re.DOTALL)
+        raw_response = response_data.get("response", "")
+        task.self_evaluation = response_data.get("self_evaluation")
+        
+        tool_use_match = re.search(r'"tool_use"\s*:', raw_response)
         if tool_use_match:
             try:
-                tool_request = json.loads(tool_use_match.group(1))
-                tool_info = tool_request.get("tool_use", {})
+                # ツール利用要求が自己評価JSONの一部として返される場合
+                tool_data = json.loads(raw_response)
+                tool_info = tool_data.get("tool_use", {})
                 tool_name = tool_info.get("tool_name")
                 tool_query = tool_info.get("tool_query")
                 tool_url = tool_info.get("tool_url")
 
                 if tool_name and tool_query:
-                    print(f" টুল利用要求を検知: {tool_name}('{tool_query}')")
+                    print(f"🛠️ ツール利用要求を検知: {tool_name}('{tool_query}')")
                     return {
                         "status": "tool_request",
                         "tool_name": tool_name,
@@ -80,6 +86,24 @@ class GeneratorAgent(BaseAgent):
 
         return {"status": "completed", "result": raw_response.strip()}
 
+    def _parse_self_evaluation_from_str(self, raw_str: str) -> Dict[str, Any]:
+        """ 文字列から自己評価JSONをパースする """
+        json_match = re.search(r'```json\s*(\{[\s\S]*?\})\s*```', raw_str, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
+        else:
+            start_index = raw_str.find('{')
+            end_index = raw_str.rfind('}')
+            if start_index != -1 and end_index != -1:
+                json_str = raw_str[start_index:end_index + 1]
+            else:
+                raise json.JSONDecodeError("No JSON object found", raw_str, 0)
+        
+        data = json.loads(json_str)
+        if "response" not in data or "self_evaluation" not in data:
+            raise KeyError("Missing 'response' or 'self_evaluation' key")
+        return data
+
     def _build_messages_with_context(
         self,
         task: SubTask,
@@ -87,15 +111,15 @@ class GeneratorAgent(BaseAgent):
         context: Dict[str, Any],
         consultation_feedback: str = ""
     ) -> List[ChatCompletionRequestMessage]:
-        milestone: Optional[Milestone] = context.get('milestone')
         
-        tool_results = context.get("tool_results", "")
-        system_prompt = self._add_tool_use_prompt_to_system(expert.system_prompt)
-
+        milestone: Optional[Milestone] = context.get('milestone')
+        system_prompt = expert.system_prompt
         dependency_results = context.get("dependency_results", "")
         rag_results_list = context.get("rag_results", [])
         rag_results_str = "\n".join([f"- {r}" for r in rag_results_list])
         ssv_description = context.get('ssv_description', task.description)
+        tool_results = context.get("tool_results", "")
+        feedback = task.feedback_history[-1].get("feedback") if task.feedback_history else ""
 
         user_prompt = f"""# 全体目標 (L1)
 {context.get('overall_goal', 'N/A')}
@@ -116,9 +140,13 @@ class GeneratorAgent(BaseAgent):
 # 専門家からの助言 (コンサルテーション)
 {consultation_feedback if consultation_feedback else "特になし。"}
 
+#【重要】前回のレビューからのフィードバック
+{feedback if feedback else "フィードバックはありません。"}
+
 # あなたのタスク (L3)
-以上の全てのコンテキストと専門家の助言を踏まえ、以下のタスクを実行してください。
-**もしタスク実行に外部の情報が必要だと判断した場合、後述のJSON形式でツール利用を要求してください。**
+以上の全てのコンテキスト情報を踏まえ、以下のタスクを実行してください。
+**もしタスク実行に外部の情報が必要だと判断した場合、ツール利用を要求するJSONを出力してください。**
+あなたの応答は、最終的に自己評価JSONに含める形で出力されます。
 
 ## タスクの核心 (SSV)
 **このタスクで最も重要な目的は「{ssv_description}」を達成することです。**
@@ -132,29 +160,11 @@ class GeneratorAgent(BaseAgent):
             {"role": "user", "content": user_prompt}
         ]
 
-    def _add_tool_use_prompt_to_system(self, original_prompt: str) -> str:
-        tool_prompt = """
-# ツール利用
-タスクの実行に外部情報（例: 最新のニュース、普遍的な知識）が必要な場合は、通常の応答の代わりに、以下のJSON形式のみを出力してください。
-
-```json
-{
-  "tool_use": {
-    "tool_name": "（'wikipedia_search' または 'web_search'）",
-    "tool_query": "（ツールで検索・要約させたい具体的な質問文やキーワード）",
-    "tool_url": "（web_searchの場合にアクセスしてほしいURL。不要な場合はnull）",
-    "reasoning": "（なぜこのツールが必要なのかの簡単な説明）"
-  }
-}
-```
-"""
-        return original_prompt + "\n" + tool_prompt
-
     def _generate_image(self, expert: ExpertModel, prompt: str) -> str:
         print(f"🎨 拡散モデル '{expert.name}' を使用して画像を生成します...")
         try:
             pipe = cast(DiffusionPipeline, self.model_loader.load_expert(expert))
-            image = pipe(prompt=prompt).images[0]  # type: ignore[operator]
+            image = pipe(prompt=prompt).images[0]
             
             output_dir = "output/images"
             os.makedirs(output_dir, exist_ok=True)
@@ -172,4 +182,3 @@ class GeneratorAgent(BaseAgent):
             print(f"❌ {error_message}")
             traceback.print_exc()
             return error_message
-
