@@ -63,7 +63,6 @@ class PlannerAgent(BaseAgent):
 # 利用可能なエキスパート (タスクの担当者)
 {expert_descriptions}
 """
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         judgement_criteria = """
 # 判断基準 (最重要)
 1.  **情報検索タスクの計画**: ユーザーの要求が外部情報（Web検索やWikipedia）を必要とする場合、それを実行する**単一のタスク**を作成します。
@@ -73,7 +72,6 @@ class PlannerAgent(BaseAgent):
 2.  **エキスパートの選定**: `expert_name` には、必ず上記の「利用可能なエキスパート」リストに存在する名前を指定します。ツール名は指定できません。情報検索タスクの担当は `Jamba` が適任です。
 3.  **性能・速度・コスト**: `performance_summary` を参考に、タスク内容に最も適したエキスパートを選択します。
 """
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         performance_section = f"""
 # エキスパートのパフォーマンス実績 (参考情報)
@@ -182,7 +180,7 @@ class PlannerAgent(BaseAgent):
                 "task_id": 1,
                 "milestone_id": 1,
                 "description": "ツール `web_search` を使って「アイスクリーム 簡単 レシピ」を調査する",
-                "expert_name": "Jamba",
+                "expert_name": "(タスクに適したエキスパート名)",
                 "ssv_description": "アイスクリームの簡単レシピ検索と要約",
                 "consultation_experts": [],
                 "reviewer_expert": null,

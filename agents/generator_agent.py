@@ -27,7 +27,6 @@ class GeneratorAgent(BaseAgent):
 
     def execute(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any], all_experts: List[ExpertModel]) -> Dict[str, Any]:
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # Step 1: Check for tool use instruction ONLY if tool results are not yet available in the context
         if not context.get("tool_results"):
             tool_match = re.search(r"ツール\s*`([^`]+)`\s*を使って「([^」]+)」", task.description)
@@ -79,7 +78,6 @@ class GeneratorAgent(BaseAgent):
         raw_response = response_data.get("response", "")
         task.self_evaluation = response_data.get("self_evaluation")
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # If the LLM asks to use a tool, return that as a special status
         tool_use_match = re.search(r'"tool_use"\s*:', raw_response, re.IGNORECASE)
         if tool_use_match:
@@ -101,7 +99,6 @@ class GeneratorAgent(BaseAgent):
                 pass
 
         return {"status": "completed", "result": raw_response.strip()}
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _parse_self_evaluation_from_str(self, raw_str: str) -> Dict[str, Any]:
         """ 文字列から自己評価JSONをパースする """
@@ -138,6 +135,7 @@ class GeneratorAgent(BaseAgent):
         tool_results = context.get("tool_results", "")
         feedback = task.feedback_history[-1].get("feedback") if task.feedback_history else ""
 
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if tool_results:
             main_instruction = """# あなたのタスク (L3)
 先行タスクによって、以下の「ツールからの情報」が収集されました。
@@ -146,17 +144,8 @@ class GeneratorAgent(BaseAgent):
         else:
             main_instruction = """# あなたのタスク (L3)
 以上の全てのコンテキスト情報を踏まえ、以下のタスクを実行してください。
-
-**【最重要】**
-**このタスクが外部ツールの使用を指示している場合（例：「ツール `web_search` を使って〜」）、他の応答は一切せず、必ず以下のJSON形式のみを出力してください。**
-{
-  "tool_use": {
-    "tool_name": "（`description`に書かれているツール名）",
-    "tool_query": "（検索や実行のための具体的なキーワードや質問）"
-  }
-}
-**ツール使用の指示がない場合にのみ**、通常の応答と自己評価を生成してください。
 """
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         user_prompt = f"""# 全体目標 (L1)
 {context.get('overall_goal', 'N/A')}
