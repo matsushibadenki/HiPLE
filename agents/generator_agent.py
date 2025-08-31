@@ -27,11 +27,27 @@ class GeneratorAgent(BaseAgent):
 
     def execute(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any], all_experts: List[ExpertModel]) -> Dict[str, Any]:
         
+        # Step 1: Check for tool use instruction ONLY if tool results are not yet available in the context
+        if not context.get("tool_results"):
+            tool_match = re.search(r"ツール\s*`([^`]+)`\s*を使って「([^」]+)」", task.description)
+            if tool_match:
+                tool_name = tool_match.group(1).strip()
+                tool_query = tool_match.group(2).strip()
+                print(f"🛠️ ツール利用要求を計画から直接検知: {tool_name}('{tool_query}')")
+                return {
+                    "status": "tool_request",
+                    "tool_name": tool_name,
+                    "tool_query": tool_query,
+                    "tool_url": None # Planner doesn't specify URL, ToolManager will handle it
+                }
+        
+        # Step 2: Handle image generation if it's a diffusion model
         if expert.chat_format == "diffusion":
             result = self._generate_image(expert, task.description)
             task.self_evaluation = {"confidence": 0.9, "reasoning": "Image generated."}
             return {"status": "completed", "result": result}
         
+        # Step 3: Handle normal text generation tasks (now with potential tool results in context)
         consultation_feedback = ""
         if task.consultation_experts:
             consultation_result = self.consultant_agent.execute(
@@ -48,7 +64,6 @@ class GeneratorAgent(BaseAgent):
             if expert.execution_strategy == "worker":
                 response_dict_from_worker = self.worker_manager.invoke_llm_worker(expert, messages)
                 raw_response_str = response_dict_from_worker.get("choices", [{}])[0].get("message", {}).get("content", "")
-                # ワーカーからの応答を自己評価形式にパースする試み
                 try:
                     parsed_data = self._parse_self_evaluation_from_str(raw_response_str)
                     response_data = parsed_data
@@ -63,27 +78,6 @@ class GeneratorAgent(BaseAgent):
         raw_response = response_data.get("response", "")
         task.self_evaluation = response_data.get("self_evaluation")
         
-        tool_use_match = re.search(r'"tool_use"\s*:', raw_response)
-        if tool_use_match:
-            try:
-                # ツール利用要求が自己評価JSONの一部として返される場合
-                tool_data = json.loads(raw_response)
-                tool_info = tool_data.get("tool_use", {})
-                tool_name = tool_info.get("tool_name")
-                tool_query = tool_info.get("tool_query")
-                tool_url = tool_info.get("tool_url")
-
-                if tool_name and tool_query:
-                    print(f"🛠️ ツール利用要求を検知: {tool_name}('{tool_query}')")
-                    return {
-                        "status": "tool_request",
-                        "tool_name": tool_name,
-                        "tool_query": tool_query,
-                        "tool_url": tool_url
-                    }
-            except json.JSONDecodeError:
-                pass 
-
         return {"status": "completed", "result": raw_response.strip()}
 
     def _parse_self_evaluation_from_str(self, raw_str: str) -> Dict[str, Any]:
@@ -121,6 +115,26 @@ class GeneratorAgent(BaseAgent):
         tool_results = context.get("tool_results", "")
         feedback = task.feedback_history[-1].get("feedback") if task.feedback_history else ""
 
+        if tool_results:
+            main_instruction = """# あなたのタスク (L3)
+先行タスクによって、以下の「ツールからの情報」が収集されました。
+この情報を基に、以下のタスク詳細を達成するための応答を生成してください。
+"""
+        else:
+            main_instruction = """# あなたのタスク (L3)
+以上の全てのコンテキスト情報を踏まえ、以下のタスクを実行してください。
+
+**【最重要】**
+**このタスクが外部ツールの使用を指示している場合（例：「ツール `web_search` を使って〜」）、他の応答は一切せず、必ず以下のJSON形式のみを出力してください。**
+{
+  "tool_use": {
+    "tool_name": "（`description`に書かれているツール名）",
+    "tool_query": "（検索や実行のための具体的なキーワードや質問）"
+  }
+}
+**ツール使用の指示がない場合にのみ**、通常の応答と自己評価を生成してください。
+"""
+        
         user_prompt = f"""# 全体目標 (L1)
 {context.get('overall_goal', 'N/A')}
 
@@ -143,10 +157,7 @@ class GeneratorAgent(BaseAgent):
 #【重要】前回のレビューからのフィードバック
 {feedback if feedback else "フィードバックはありません。"}
 
-# あなたのタスク (L3)
-以上の全てのコンテキスト情報を踏まえ、以下のタスクを実行してください。
-**もしタスク実行に外部の情報が必要だと判断した場合、ツール利用を要求するJSONを出力してください。**
-あなたの応答は、最終的に自己評価JSONに含める形で出力されます。
+{main_instruction}
 
 ## タスクの核心 (SSV)
 **このタスクで最も重要な目的は「{ssv_description}」を達成することです。**
@@ -182,3 +193,4 @@ class GeneratorAgent(BaseAgent):
             print(f"❌ {error_message}")
             traceback.print_exc()
             return error_message
+

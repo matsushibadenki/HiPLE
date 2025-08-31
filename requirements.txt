@@ -38,6 +38,7 @@ scikit-learn
 # --- Web Browser Agent用ライブラリ ---
 playwright
 beautifulsoup4
+googlesearch-python
 
 # --- Wikipedia Agent用ライブラリ ---
 wikipedia

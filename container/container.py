@@ -14,16 +14,12 @@ from services.web_browser_service import WebBrowserService
 from services.tool_manager_service import ToolManagerService
 from rag.retrievers import FaissRetriever
 from orchestrator.hiple_orchestrator import HipleOrchestrator
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-# from orchestrator.router import SimpleRouter # This is no longer used
 from agents.tool_router_agent import ToolRouterAgent
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from agents.planner_agent import PlannerAgent
 from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
 from agents.consultant_agent import ConsultantAgent
 from agents.wikipedia_agent import WikipediaAgent
-from agents.web_browser_agent import WebBrowserAgent
 from agents.rag_agent import RAGAgent
 from agents.reviewer_agent import ReviewerAgent
 from agents.critic_agent import CriticAgent
@@ -51,10 +47,7 @@ class Container(containers.DeclarativeContainer):
     rag_manager = providers.Singleton(RAGManagerService, vectorization_service=vectorization_service)
     model_manager = providers.Singleton(ModelManager, config_path=config_path.model_config_path)
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    # simple_router = providers.Factory(SimpleRouter) # Replaced
     tool_router_agent = providers.Factory(ToolRouterAgent, model_loader=model_loader)
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     safety_director_agent = providers.Factory(SafetyDirectorAgent)
     metacognition_agent = providers.Factory(MetacognitionAgent)
@@ -67,7 +60,6 @@ class Container(containers.DeclarativeContainer):
     )
 
     wikipedia_agent = providers.Factory(WikipediaAgent, model_loader=model_loader)
-    web_browser_agent = providers.Factory(WebBrowserAgent, model_loader=model_loader)
     planner_agent = providers.Factory(PlannerAgent, model_loader=model_loader)
     critic_agent = providers.Factory(CriticAgent, model_loader=model_loader)
     consultant_agent = providers.Factory(ConsultantAgent, model_loader=model_loader)
@@ -80,16 +72,13 @@ class Container(containers.DeclarativeContainer):
     tool_manager = providers.Singleton(
         ToolManagerService,
         wikipedia_agent=wikipedia_agent,
-        web_browser_agent=web_browser_agent,
         web_browser_service=web_browser_service,
     )
 
     hiple_orchestrator = providers.Factory(
         HipleOrchestrator,
         model_manager=model_manager,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         tool_router_agent=tool_router_agent,
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         planner_agent=planner_agent,
         critic_agent=critic_agent,
         generator_agent=generator_agent,

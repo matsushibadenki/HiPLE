@@ -1,67 +1,52 @@
 # path: ./services/web_browser_service.py
-# title: Web Browser Service
-# description: Playwrightを使用してヘッドレスブラウザを制御し、Webページのコンテンツを取得するサービス。
+# title: Web Browser Service (Synchronous Implementation)
+# description: Playwrightを使用してヘッドレスブラウザを制御し、Webページのコンテンツを取得するサービス。非同期処理に起因するエラーを解消するため、同期APIを使用。
 
-import asyncio
 from typing import Optional
-from playwright.async_api import async_playwright, Browser, Page, Playwright
+from playwright.sync_api import sync_playwright, Browser, Page, Playwright
 
 class WebBrowserService:
     """
-    Playwrightをラップして、非同期的なブラウザ操作を提供するサービス。
+    Playwrightをラップして、同期的なブラウザ操作を提供するサービス。
     """
     def __init__(self, headless: bool = True):
         self.headless = headless
         self.playwright: Optional[Playwright] = None
         self.browser: Optional[Browser] = None
 
-    async def launch_browser(self) -> None:
+    def launch_browser(self) -> None:
         """ブラウザを起動する"""
-        if self.browser and self.browser.is_connected():
+        if self.browser and self.browser.is_connected:
             return
-        self.playwright = await async_playwright().start()
-        self.browser = await self.playwright.chromium.launch(headless=self.headless)
+        self.playwright = sync_playwright().start()
+        self.browser = self.playwright.chromium.launch(headless=self.headless)
         print("🖥️ ブラウザを起動しました。")
 
-    async def close_browser(self) -> None:
+    def close_browser(self) -> None:
         """ブラウザを閉じる"""
         if self.browser:
-            await self.browser.close()
+            self.browser.close()
             self.browser = None
         if self.playwright:
-            await self.playwright.stop()
+            self.playwright.stop()
             self.playwright = None
         print("🖥️ ブラウザを終了しました。")
 
-    def get_page_content_sync(self, url: str) -> str:
-        """
-        get_page_contentの同期ラッパー
-        """
-        return asyncio.run(self.get_page_content(url))
-
-    def close_browser_sync(self) -> None:
-        """
-        close_browserの同期ラッパー
-        """
-        # ブラウザが起動している場合のみ閉じる
-        if self.browser and self.browser.is_connected():
-            asyncio.run(self.close_browser())
-
-    async def get_page_content(self, url: str) -> str:
+    def get_page_content(self, url: str) -> str:
         """
         指定されたURLのレンダリング済みHTMLコンテンツを取得する。
         """
-        if not self.browser or not self.browser.is_connected():
-            await self.launch_browser()
+        if not self.browser or not self.browser.is_connected:
+            self.launch_browser()
         
         page: Optional[Page] = None
         try:
             # self.browserがNoneでないことをアサーションで確認
             assert self.browser is not None
-            page = await self.browser.new_page()
+            page = self.browser.new_page()
             print(f"📄 ページにアクセスしています: {url}")
-            await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            content = await page.content()
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            content = page.content()
             print(f"✅ コンテンツの取得に成功しました。(文字数: {len(content)})")
             return content
         except Exception as e:
@@ -69,4 +54,4 @@ class WebBrowserService:
             return f"エラー: {url} のコンテンツ取得に失敗しました。理由: {e}"
         finally:
             if page:
-                await page.close()
+                page.close()

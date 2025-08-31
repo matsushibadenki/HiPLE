@@ -26,13 +26,13 @@ from rag.retrievers import BaseRetriever
 from rag.data_sources import PlanDataSource, Document
 from workspace.global_workspace import GlobalWorkspace
 from utils.thought_logger import ThoughtLogger
-from .router import SimpleRouter
+from agents.tool_router_agent import ToolRouterAgent
 
 class HipleOrchestrator:
     def __init__(
         self,
         model_manager: ModelManager,
-        simple_router: SimpleRouter,
+        tool_router_agent: ToolRouterAgent,
         planner_agent: PlannerAgent,
         generator_agent: GeneratorAgent,
         reporter_agent: ReporterAgent,
@@ -52,7 +52,7 @@ class HipleOrchestrator:
         emergence_agent: EmergenceAgent
     ):
         self.model_manager = model_manager
-        self.simple_router = simple_router
+        self.tool_router_agent = tool_router_agent
         self.planner_agent = planner_agent
         self.generator_agent = generator_agent
         self.reporter_agent = reporter_agent
@@ -91,7 +91,7 @@ class HipleOrchestrator:
             if not active_experts: return "エラー: 利用可能なエキスパートがいません。"
 
             self.workspace.add_thought("orchestrator", "routing_start", "Phase 0: Routing")
-            route_result = self.simple_router.route(prompt)
+            route_result = self.tool_router_agent.execute(prompt, active_experts)
             task_type = route_result["type"]
             self.workspace.add_thought("orchestrator", "routing_result", {"task_type": task_type, "query": route_result.get("query")})
             
@@ -104,20 +104,14 @@ class HipleOrchestrator:
                 result = cast(str, route_result["response"])
             else:
                 query = cast(str, route_result["query"])
-                if task_type == "wikipedia":
-                    result = self.tool_manager.execute_tool("wikipedia_search", query, "", active_experts)
-                elif task_type == "web_search":
-                    url = route_result.get("url", "")
-                    if not url: return "ウェブ検索にはURLが必要です。"
-                    result = self.tool_manager.execute_tool("web_search", query, url, active_experts)
+                if task_type in ["wikipedia", "web_search", "complex_task"]:
+                    result = self._process_complex_task(prompt, active_experts)
+                    is_complex = True
                 elif task_type == "simple_chat":
                     result = self._process_simple_task(query, active_experts)
                 elif task_type == "emergent_task":
                     response_data = self.emergence_agent.execute(query, active_experts)
                     result = response_data.get("response", "創発的タスクの実行に失敗しました。")
-                elif task_type == "complex_task":
-                    result = self._process_complex_task(query, active_experts)
-                    is_complex = True
                 else:
                     result = f"エラー: 不明なタスクタイプ '{task_type}'"
 
@@ -135,7 +129,7 @@ class HipleOrchestrator:
             self.workspace.add_thought("orchestrator", "fatal_error", {"error": str(e), "traceback": traceback.format_exc()})
             return f"致命的なエラーが発生しました: {e}"
         finally:
-            self.tool_manager.web_browser_service.close_browser_sync()
+            self.tool_manager.web_browser_service.close_browser()
 
     def _process_simple_task(self, prompt: str, experts: List[ExpertModel]) -> str:
         self.workspace.add_thought("orchestrator", "simple_task_start", "Dynamic Generation for Simple Task")
@@ -215,7 +209,7 @@ class HipleOrchestrator:
             self.workspace.add_thought("orchestrator", "critic_phase_start", "Phase 1c: Strategic Review by Critic Agent")
             critic_feedback = self.critic_agent.execute(current_plan, experts)
 
-            if "計画に問題は見つかりませんでした。" not in critic_feedback:
+            if not critic_feedback.startswith("承認します。"):
                 self.workspace.add_thought("critic_agent", "plan_criticism_received", {"feedback": critic_feedback})
                 print(f"⚠️ 批評家からの指摘を受信: {critic_feedback}")
                 validation_error = f"批評家からの指摘: {critic_feedback}"
@@ -307,7 +301,9 @@ class HipleOrchestrator:
                             self.workspace.add_thought("orchestrator", "review_start", {"task_id": task.task_id, "reviewer": reviewer.name})
                             feedback_data = self.reviewer_agent.execute(task, generated_output, reviewer, expert)
                             feedback = feedback_data.get("response", "")
-                            if "修正の必要はありません" not in feedback and "問題ありません" not in feedback:
+                            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                            if not feedback.startswith("承認します。"):
+                            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                                 self.workspace.add_thought("reviewer_agent", "feedback_provided", {"task_id": task.task_id, "feedback": feedback})
                                 task.feedback_history.append({"reviewer": reviewer.name, "feedback": feedback})
                                 task_context["feedback"] = feedback
@@ -394,4 +390,3 @@ class HipleOrchestrator:
             "dependency_results": "",
             "rag_results": []
         }
-
