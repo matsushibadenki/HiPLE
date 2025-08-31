@@ -50,7 +50,7 @@ class PlannerAgent(BaseAgent):
         raise ValueError("利用可能なプランナーエキスパートが見つかりません。")
 
     def _build_system_prompt(self, expert_descriptions: str, tool_descriptions: str, performance_summary: Optional[str]) -> str:
-        # ... (内容は同じだが、自己評価プロンプトがBaseAgentで追加される)
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         prompt_header = """あなたは、ユーザーの曖昧な要求を構造化された階層的計画に変換する、超優秀なAIプロジェクトマネージャーです。
 # あなたのタスク
 ユーザーの要求と利用可能なリソース（エキスパート、ツール）を分析し、最適なJSON形式の実行計画を立案してください。
@@ -58,21 +58,25 @@ class PlannerAgent(BaseAgent):
         tools_section = f"""
 # 利用可能なツール
 {tool_descriptions}
-- タスク記述に「ツールを使って〜を調べる」のように具体的に指示することで、エキスパートはツールを利用できます。
+
+# 【重要】ツールの使い方
+- ツールはエキスパートではありません。`expert_name` や `consultation_experts` にツール名を入れてはいけません。
+- ツールを使うには、**実行したい内容を `description` に具体的に記述し、そのタスクを遂行できるエキスパート（通常は 'Jamba'）に割り当てます。**
+- 例: 「Wikipediaを使って量子コンピュータについて調査する」というタスクを 'Jamba' に割り当てる。
 """
         
         experts_section = f"""
-# 利用可能なエキスパート
+# 利用可能なエキスパート (タスクの担当者)
 {expert_descriptions}
 """
 
         judgement_criteria = """
 # 判断基準 (最重要)
-1.  **ツール利用**: 最新情報や専門知識が必要な場合、まずツール利用のタスクを計画してください。
-2.  **性能 (Performance)**: `performance_summary` の `Score` が高いエキスパートを優先します。
-3.  **速度 (Speed)** & **コスト (Cost)**: `speed_score` と `cost_score` のバランスを考慮します。
-4.  **適性 (Description)**: タスク内容に最も適した能力を持つエキスパートを選択します。
+1.  **ツール利用の計画**: 最新情報や外部知識が必要な場合、まずツール利用を指示するタスクを計画に含めます。
+2.  **エキスパートの選定**: `expert_name` と `consultation_experts` には、必ず上記の「利用可能なエキスパート」リストに存在する名前を指定します。
+3.  **性能・速度・コスト**: `performance_summary` を参考に、タスク内容に最も適したエキスパートを選択します。
 """
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         performance_section = f"""
 # エキスパートのパフォーマンス実績 (参考情報)
@@ -89,10 +93,19 @@ class PlannerAgent(BaseAgent):
             user_prompt += f"\n\n# 警告\n前回の計画は実行に失敗しました。内容を根本的に見直し、新しいアプローチで計画を立て直してください。"
         return user_prompt
 
-    def _parse_plan_from_response(self, raw_response: str, original_prompt: str, planner_expert: ExpertModel) -> Plan:
+    def _parse_plan_from_response(self, raw_response: Any, original_prompt: str, planner_expert: ExpertModel) -> Plan:
         try:
             print(f"--- Hierarchical Planner Raw Response ---\n{raw_response}\n--------------------------")
-            plan_data = json.loads(raw_response)
+            
+            # BaseAgentが既にJSONをパースしてdictを返すため、型をチェックして二重パースを避ける
+            plan_data: Dict[str, Any]
+            if isinstance(raw_response, dict):
+                plan_data = raw_response  # 既に辞書オブジェクトの場合
+            elif isinstance(raw_response, str):
+                plan_data = json.loads(raw_response) # 文字列の場合のみパース
+            else:
+                # 予期しない型の場合、エラーを発生させる
+                raise TypeError(f"Response is not a valid type (string or dictionary), but got {type(raw_response)}")
 
             milestones = [Milestone(**m) for m in plan_data.get("milestones", [])]
             tasks_data = plan_data.get("tasks", [])
@@ -142,6 +155,7 @@ class PlannerAgent(BaseAgent):
         )
 
     def _get_json_format_section(self) -> str:
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return """
 # JSON出力フォーマット (厳守)
 あなたの応答は、最終的に自己評価を含むより大きなJSONの一部として解析されます。以下の`response`キーの値として、計画JSONを出力してください。
@@ -161,12 +175,22 @@ class PlannerAgent(BaseAgent):
             {
                 "task_id": 1,
                 "milestone_id": 1,
-                "description": "（L3: 実行すべき具体的なタスク内容）",
-                "expert_name": "（性能・コスト・速度・適性を総合的に判断して選んだエキスパート名）",
-                "ssv_description": "（タスクの意味の核を記述した短い説明文）",
-                "consultation_experts": ["（助言を求めるエキスパート名1）"],
-                "reviewer_expert": "（成果物の品質を保証するためのレビュー担当者名）",
+                "description": "ツール `wikipedia_search` を使って「HRMモデル」の概要を調査する",
+                "expert_name": "Jamba",
+                "ssv_description": "HRMモデルの概要調査",
+                "consultation_experts": [],
+                "reviewer_expert": "HRM",
                 "dependencies": []
+            },
+            {
+                "task_id": 2,
+                "milestone_id": 1,
+                "description": "タスク1の結果を基に、HRMモデルの特徴をまとめる",
+                "expert_name": "HRM",
+                "ssv_description": "HRMモデルの特徴を要約",
+                "consultation_experts": [],
+                "reviewer_expert": null,
+                "dependencies": [1]
             }
         ]
     },
@@ -174,12 +198,17 @@ class PlannerAgent(BaseAgent):
 }
 ```
 """
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _get_rules_section(self) -> str:
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return """
 # ルール
 - **ID**: `milestone_id`と`task_id`は1から始まる連番にしてください。
-- **依存関係**: `dependencies`には先行タスクの`task_id`をリストで指定します。
+- **依存関係**: `dependencies`には、先行するタスクの`task_id`を**数値の配列**として`[1, 2]`のように指定します。
+- **担当者**: `expert_name` と `consultation_experts` には、必ずエキスパートリストの名前を指定してください。ツール名は指定できません。
 - **報告タスク**: 複雑な要求の場合、最後に'Reporter'を配置し、最終報告書を作成させてください。
 - **単純な要求**: 単純な挨拶や質問の場合、マイルストーンは1つ、タスクも1つだけ生成します。
 """
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+

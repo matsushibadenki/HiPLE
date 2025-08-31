@@ -1,6 +1,6 @@
 # path: ./container/container.py
-# title: DI Container with Emergence Agent
-# description: Adds the EmergenceAgent for brainstorming and injects it into the Orchestrator.
+# title: DI Container with Intelligent ToolRouterAgent
+# description: Replaces the simple router with the ToolRouterAgent and injects it into the orchestrator for more intelligent task routing.
 
 from dependency_injector import containers, providers
 from domain.model_manager import ModelManager
@@ -14,7 +14,10 @@ from services.web_browser_service import WebBrowserService
 from services.tool_manager_service import ToolManagerService
 from rag.retrievers import FaissRetriever
 from orchestrator.hiple_orchestrator import HipleOrchestrator
-from orchestrator.router import SimpleRouter
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# from orchestrator.router import SimpleRouter # This is no longer used
+from agents.tool_router_agent import ToolRouterAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from agents.planner_agent import PlannerAgent
 from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
@@ -47,7 +50,11 @@ class Container(containers.DeclarativeContainer):
     faiss_retriever = providers.Factory(FaissRetriever, vectorization_service=vectorization_service)
     rag_manager = providers.Singleton(RAGManagerService, vectorization_service=vectorization_service)
     model_manager = providers.Singleton(ModelManager, config_path=config_path.model_config_path)
-    simple_router = providers.Factory(SimpleRouter)
+    
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    # simple_router = providers.Factory(SimpleRouter) # Replaced
+    tool_router_agent = providers.Factory(ToolRouterAgent, model_loader=model_loader)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     safety_director_agent = providers.Factory(SafetyDirectorAgent)
     metacognition_agent = providers.Factory(MetacognitionAgent)
@@ -80,7 +87,9 @@ class Container(containers.DeclarativeContainer):
     hiple_orchestrator = providers.Factory(
         HipleOrchestrator,
         model_manager=model_manager,
-        simple_router=simple_router,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        tool_router_agent=tool_router_agent,
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         planner_agent=planner_agent,
         critic_agent=critic_agent,
         generator_agent=generator_agent,
@@ -99,4 +108,3 @@ class Container(containers.DeclarativeContainer):
         evolution_service=evolution_service,
         emergence_agent=emergence_agent
     )
-
