@@ -1,6 +1,6 @@
 # path: ./container/container.py
-# title: DI Container with Intelligent ToolRouterAgent
-# description: Replaces the simple router with the ToolRouterAgent and injects it into the orchestrator for more intelligent task routing.
+# title: DI Container with Corrected Dependencies
+# description: Corrects the dependency injection for the refactored WebBrowserAgent.
 
 from dependency_injector import containers, providers
 from domain.model_manager import ModelManager
@@ -67,7 +67,9 @@ class Container(containers.DeclarativeContainer):
         model_loader=model_loader, 
         wikipedia_service=wikipedia_service
     )
-    web_browser_agent = providers.Factory(WebBrowserAgent, model_loader=model_loader)
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    web_browser_agent = providers.Factory(WebBrowserAgent) # model_loader is no longer needed
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     planner_agent = providers.Factory(PlannerAgent, model_loader=model_loader)
     critic_agent = providers.Factory(CriticAgent, model_loader=model_loader)
     consultant_agent = providers.Factory(ConsultantAgent, model_loader=model_loader)
@@ -77,7 +79,6 @@ class Container(containers.DeclarativeContainer):
     reviewer_agent = providers.Factory(ReviewerAgent, model_loader=model_loader)
     emergence_agent = providers.Factory(EmergenceAgent, model_loader=model_loader)
     
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     tool_manager = providers.Singleton(
         ToolManagerService,
         wikipedia_agent=wikipedia_agent,
@@ -107,4 +108,3 @@ class Container(containers.DeclarativeContainer):
         evolution_service=evolution_service,
         emergence_agent=emergence_agent
     )
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️

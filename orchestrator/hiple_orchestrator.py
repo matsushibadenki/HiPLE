@@ -1,10 +1,11 @@
 # path: ./orchestrator/hiple_orchestrator.py
-# title: Orchestrator with Emergence Task Handling
-# description: Integrates the EmergenceAgent to handle creative brainstorming tasks.
+# title: Orchestrator with Direct Tool Result Handling
+# description: Handles tool execution results as the direct outcome of a task, improving stability.
 
 import time
 import traceback
 from typing import Dict, List, Tuple, Any, Optional, cast
+from collections import defaultdict
 from bs4 import BeautifulSoup
 
 from domain.model_manager import ModelManager
@@ -18,9 +19,6 @@ from agents.reviewer_agent import ReviewerAgent
 from agents.safety_director_agent import SafetyDirectorAgent
 from agents.metacognition_agent import MetacognitionAgent
 from agents.emergence_agent import EmergenceAgent
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-# from agents.web_browser_agent import WebBrowserAgent # 不要
-# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from services.evolution_service import EvolutionService
 from services.rag_manager_service import RAGManagerService
 from services.plan_evaluation_service import PlanEvaluationService
@@ -33,7 +31,6 @@ from utils.thought_logger import ThoughtLogger
 from agents.tool_router_agent import ToolRouterAgent
 
 class HipleOrchestrator:
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def __init__(
         self,
         model_manager: ModelManager,
@@ -56,7 +53,6 @@ class HipleOrchestrator:
         evolution_service: EvolutionService,
         emergence_agent: EmergenceAgent
     ):
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.model_manager = model_manager
         self.tool_router_agent = tool_router_agent
         self.planner_agent = planner_agent
@@ -77,7 +73,7 @@ class HipleOrchestrator:
         self.evolution_service = evolution_service
         self.emergence_agent = emergence_agent
         self.task_counter_for_evolution = 0
-        self.evolution_check_interval = 3 # 3回の複雑なタスクごとに進化サイクルを実行
+        self.evolution_check_interval = 3
         self.max_replanning_attempts = 3
         self.max_feedback_loops = 2
         self.max_tool_uses_per_task = 3
@@ -238,8 +234,10 @@ class HipleOrchestrator:
         self.workspace.add_thought("orchestrator", "execution_phase_start", "Phase 2b: Context-Aware Generation (HiPLE-G)")
         completed_tasks: Dict[int, SubTask] = {}
         worker_tasks = [t for t in plan.tasks if t.expert_name.lower() != 'reporter']
-        task_context_storage: Dict[int, Dict[str, Any]] = {}
-
+        
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        task_context_storage: Dict[int, Dict[str, Any]] = defaultdict(dict)
+        
         while len(completed_tasks) < len(worker_tasks):
             safety_check_result = self.safety_director.review_thought_process(self.workspace)
             if safety_check_result and "Aborting" in safety_check_result:
@@ -268,9 +266,9 @@ class HipleOrchestrator:
                     continue
 
                 execution_time = 0.0
-                task_context = task_context_storage.get(task.task_id, {})
+                task_context = task_context_storage[task.task_id]
                 
-                for loop_count in range(self.max_feedback_loops + self.max_tool_uses_per_task):
+                for loop_count in range(self.max_feedback_loops + 1):
                     rag_decision_data = self.rag_agent.execute(task.ssv_description, experts)
                     rag_decision = cast(Dict[str, Any], rag_decision_data.get("response", {}))
                     rag_results: List[Document] = []
@@ -278,7 +276,7 @@ class HipleOrchestrator:
                         query = rag_decision.get("query", task.ssv_description)
                         rag_results = self.rag_manager.query("plan_retriever", query, k=3)
                         self.workspace.add_thought("rag_agent", "retrieval_performed", {"query": query, "results_count": len(rag_results)})
-                    
+
                     current_context = self._build_context_for_task(task, plan, completed_tasks, rag_results, task_context.get("tool_results", ""))
 
                     self.workspace.add_thought("orchestrator", "task_execution_start", {"task_id": task.task_id, "expert": expert.name, "attempt": loop_count + 1, "description": task.description})
@@ -287,11 +285,11 @@ class HipleOrchestrator:
                     start_time = time.time()
                     response_dict = self.generator_agent.execute(task, expert, current_context, experts)
                     execution_time += time.time() - start_time
-
+                    
                     if response_dict.get("status") == "tool_request":
                         tool_name = response_dict.get("tool_name", "")
                         tool_query = response_dict.get("tool_query", "")
-                        tool_url = response_dict.get("tool_url", "")
+                        tool_url = response_dict.get("tool_url")
                         self.workspace.add_thought("generator_agent", "tool_request", {"tool_name": tool_name, "tool_query": tool_query})
                         
                         start_time_tool = time.time()
@@ -300,6 +298,7 @@ class HipleOrchestrator:
 
                         self.workspace.add_thought("tool_manager", "tool_result", {"tool_name": tool_name, "result_length": len(tool_result)})
                         
+                        # ツール利用タスクの場合、その結果がタスクの最終成果物となる
                         task.result = tool_result
                         break
 
@@ -320,6 +319,7 @@ class HipleOrchestrator:
                     
                     task.result = generated_output
                     break
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 
                 success = task.result is not None and task.result.strip() != "" and "エラー" not in task.result
                 self.performance_tracker.update_performance(expert.name, execution_time, success)

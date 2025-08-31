@@ -63,15 +63,21 @@ class PlannerAgent(BaseAgent):
 # 利用可能なエキスパート (タスクの担当者)
 {expert_descriptions}
 """
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         judgement_criteria = """
 # 判断基準 (最重要)
-1.  **情報検索タスクの計画**: ユーザーの要求が外部情報（Web検索やWikipedia）を必要とする場合、それを実行する**単一のタスク**を作成します。
-    - **ツール選択**: 要求内容に応じて最適なツール（`web_search`または`wikipedia_search`）を選択します。
-    - **description**: 「「[検索クエリ]」について[ツール名]で調査する」のように具体的に記述します。
-    - **後続タスク**: 検索結果をさらに加工する必要がある場合（例：レポートにまとめる、他の情報と組み合わせる）、そのための後続タスクを計画できます。単純な情報提供で完結する場合は、単一タスクで問題ありません。
-2.  **エキスパートの選定**: `expert_name` には、必ず上記の「利用可能なエキスパート」リストに存在する名前を指定します。ツール名は指定できません。情報検索タスクの担当は `Jamba` が適任です。
+1.  **情報検索タスクの計画**: ユーザーの要求が外部情報（Web検索やWikipedia）を必要とする場合、**必ず2段階の計画を立ててください**。
+    - **ステップ1 (情報収集)**: ツールを実行する単一のタスクを作成します。
+        - `description`: 「ツール `[ツール名]` を使って「[検索クエリ]」について調査する」のように具体的に記述します。
+        - `expert_name`: `Jamba` を指定してください。
+    - **ステップ2 (情報加工)**: ステップ1の結果を要約・抽出し、最終的な回答を作成するタスクを作成します。
+        - `description`: 「ステップ1の結果を要約し、アイスクリームの作り方を分かりやすく説明する」のように、最終的な成果物を明確に記述します。
+        - `expert_name`: `Jamba` や `HRM` など、要約に適したエキスパートを選択します。
+        - `dependencies`: `[ (ステップ1のtask_id) ]` のように、必ずステップ1への依存関係を設定します。
+2.  **エキスパートの選定**: `expert_name` には、必ず上記の「利用可能なエキスパート」リストに存在する名前を指定します。ツール名は指定できません。
 3.  **性能・速度・コスト**: `performance_summary` を参考に、タスク内容に最も適したエキスパートを選択します。
 """
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         performance_section = f"""
 # エキスパートのパフォーマンス実績 (参考情報)
@@ -159,20 +165,18 @@ class PlannerAgent(BaseAgent):
              for e in experts if e.name.lower() != "reporter"]
         )
 
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def _get_json_format_section(self) -> str:
-        return """
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        return r"""
 # JSON出力フォーマット (厳守)
-あなたの応答は、最終的に自己評価を含むより大きなJSONの一部として解析されます。以下の`response`キーの値として、計画JSONを出力してください。
-`response`キーの値は、純粋な計画JSONオブジェクトである必要があります。
 {
     "response": {
         "overall_goal": "家庭で簡単に作れるアイスの作り方をユーザーに教える",
         "milestones": [
             {
                 "milestone_id": 1,
-                "title": "レシピ調査",
-                "description": "Webで簡単なアイスクリームのレシピを調査する"
+                "title": "レシピ調査と報告",
+                "description": "Webで簡単なアイスクリームのレシピを調査し、分かりやすくまとめて報告する"
             }
         ],
         "tasks": [
@@ -180,18 +184,24 @@ class PlannerAgent(BaseAgent):
                 "task_id": 1,
                 "milestone_id": 1,
                 "description": "ツール `web_search` を使って「アイスクリーム 簡単 レシピ」を調査する",
-                "expert_name": "(タスクに適したエキスパート名)",
-                "ssv_description": "アイスクリームの簡単レシピ検索と要約",
-                "consultation_experts": [],
-                "reviewer_expert": null,
+                "expert_name": "Jamba",
+                "ssv_description": "ウェブ検索を実行してアイスクリームのレシピ情報を取得する",
                 "dependencies": []
+            },
+            {
+                "task_id": 2,
+                "milestone_id": 1,
+                "description": "先行タスクの結果から最も簡単なレシピを1つ選び、手順を箇条書きで分かりやすく要約する",
+                "expert_name": "Jamba",
+                "ssv_description": "検索結果を要約し、ユーザーにレシピを提示する",
+                "dependencies": [1]
             }
         ]
     },
-    "self_evaluation": { "confidence": 0.9, "reasoning": "This is a standard information retrieval task." }
+    "self_evaluation": { "confidence": 0.95, "reasoning": "This is a standard information retrieval and summarization task, best handled in two distinct steps." }
 }
 """
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _get_rules_section(self) -> str:
         return """
