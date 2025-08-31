@@ -1,57 +1,86 @@
 # path: ./services/web_browser_service.py
-# title: Web Browser Service (Synchronous Implementation)
-# description: Playwrightを使用してヘッドレスブラウザを制御し、Webページのコンテンツを取得するサービス。非同期処理に起因するエラーを解消するため、同期APIを使用。
+# title: Web Browser Service with Playwright
+# description: Uses Playwright to robustly fetch and render web pages, including JavaScript-heavy sites.
 
+import atexit
 from typing import Optional
 from playwright.sync_api import sync_playwright, Browser, Page, Playwright
 
 class WebBrowserService:
     """
-    Playwrightをラップして、同期的なブラウザ操作を提供するサービス。
+    Playwrightを使用してWebブラウジング機能を提供するサービス。
     """
-    def __init__(self, headless: bool = True):
-        self.headless = headless
+    def __init__(self):
         self.playwright: Optional[Playwright] = None
         self.browser: Optional[Browser] = None
-
-    def launch_browser(self) -> None:
-        """ブラウザを起動する"""
-        if self.browser and self.browser.is_connected:
-            return
-        self.playwright = sync_playwright().start()
-        self.browser = self.playwright.chromium.launch(headless=self.headless)
-        print("🖥️ ブラウザを起動しました。")
-
-    def close_browser(self) -> None:
-        """ブラウザを閉じる"""
-        if self.browser:
-            self.browser.close()
-            self.browser = None
-        if self.playwright:
-            self.playwright.stop()
+        try:
+            print("🔄 Playwrightを初期化しています...")
+            self.playwright = sync_playwright().start()
+            self.browser = self.playwright.chromium.launch(headless=True)
+            print("✅ Playwrightの初期化が完了しました。")
+            # Ensure browser is closed on exit
+            atexit.register(self.close_browser)
+        except Exception as e:
+            print(f"❌ Playwrightの初期化中にエラーが発生しました: {e}")
+            print("ℹ️  コマンドプロンプトで 'playwright install' を実行して、ブラウザがインストールされているか確認してください。")
             self.playwright = None
-        print("🖥️ ブラウザを終了しました。")
+            self.browser = None
+
+    def get_page(self) -> Optional[Page]:
+        """
+        新しいブラウザページを取得または既存のものを再利用する。
+        """
+        if not self.browser:
+            print("❌ ブラウザが初期化されていません。")
+            return None
+        try:
+            # Use the first page if available, else create a new one.
+            if self.browser.contexts and self.browser.contexts[0].pages:
+                 return self.browser.contexts[0].pages[0]
+            return self.browser.new_page()
+        except Exception as e:
+            print(f"❌ 新しいページの作成中にエラーが発生しました: {e}")
+            return None
 
     def get_page_content(self, url: str) -> str:
         """
-        指定されたURLのレンダリング済みHTMLコンテンツを取得する。
+        指定されたURLのページコンテンツを取得する。
         """
-        if not self.browser or not self.browser.is_connected:
-            self.launch_browser()
+        page = self.get_page()
+        if not page:
+            return "エラー: ブラウザページを取得できませんでした。"
         
-        page: Optional[Page] = None
         try:
-            # self.browserがNoneでないことをアサーションで確認
-            assert self.browser is not None
-            page = self.browser.new_page()
-            print(f"📄 ページにアクセスしています: {url}")
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            print(f"🖥️ ページに移動中: {url}")
+            # DOMがロードされるまで待つ
+            page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            
+            # JavaScriptの非同期読み込みなどを考慮し、5秒間待機
+            print("⏳ 動的コンテンツの読み込みを待機しています...")
+            page.wait_for_timeout(5000)
+
+            print("📝 ページコンテンツを取得中...")
             content = page.content()
-            print(f"✅ コンテンツの取得に成功しました。(文字数: {len(content)})")
+            if not content:
+                return f"エラー: URL '{url}' からコンテンツを取得できませんでした。"
+            
+            print(f"✅ コンテンツを正常に取得しました (長さ: {len(content)} 文字)。")
             return content
+
         except Exception as e:
-            print(f"❌ ページのコンテンツ取得に失敗しました: {e}")
-            return f"エラー: {url} のコンテンツ取得に失敗しました。理由: {e}"
-        finally:
-            if page:
-                page.close()
+            error_message = f"エラー: URL '{url}' の読み込み中に問題が発生しました - {e}"
+            print(f"❌ {error_message}")
+            return error_message
+
+    def close_browser(self) -> None:
+        """
+        ブラウザとPlaywrightインスタンスを閉じる。
+        """
+        if self.browser or self.playwright:
+            print("🖥️ ブラウザを終了しています...")
+            if self.browser:
+                self.browser.close()
+                self.browser = None
+            if self.playwright:
+                self.playwright.stop()
+                self.playwright = None
