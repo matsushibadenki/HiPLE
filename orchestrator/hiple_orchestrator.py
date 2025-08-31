@@ -5,6 +5,7 @@
 import time
 import traceback
 from typing import Dict, List, Tuple, Any, Optional, cast
+from bs4 import BeautifulSoup
 
 from domain.model_manager import ModelManager
 from domain.schemas import SubTask, Plan, ExpertModel, Milestone
@@ -17,6 +18,9 @@ from agents.reviewer_agent import ReviewerAgent
 from agents.safety_director_agent import SafetyDirectorAgent
 from agents.metacognition_agent import MetacognitionAgent
 from agents.emergence_agent import EmergenceAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+# from agents.web_browser_agent import WebBrowserAgent # 不要
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from services.evolution_service import EvolutionService
 from services.rag_manager_service import RAGManagerService
 from services.plan_evaluation_service import PlanEvaluationService
@@ -29,6 +33,7 @@ from utils.thought_logger import ThoughtLogger
 from agents.tool_router_agent import ToolRouterAgent
 
 class HipleOrchestrator:
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def __init__(
         self,
         model_manager: ModelManager,
@@ -51,6 +56,7 @@ class HipleOrchestrator:
         evolution_service: EvolutionService,
         emergence_agent: EmergenceAgent
     ):
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         self.model_manager = model_manager
         self.tool_router_agent = tool_router_agent
         self.planner_agent = planner_agent
@@ -232,6 +238,7 @@ class HipleOrchestrator:
         self.workspace.add_thought("orchestrator", "execution_phase_start", "Phase 2b: Context-Aware Generation (HiPLE-G)")
         completed_tasks: Dict[int, SubTask] = {}
         worker_tasks = [t for t in plan.tasks if t.expert_name.lower() != 'reporter']
+        task_context_storage: Dict[int, Dict[str, Any]] = {}
 
         while len(completed_tasks) < len(worker_tasks):
             safety_check_result = self.safety_director.review_thought_process(self.workspace)
@@ -261,7 +268,7 @@ class HipleOrchestrator:
                     continue
 
                 execution_time = 0.0
-                task_context: Dict[str, Any] = {}
+                task_context = task_context_storage.get(task.task_id, {})
                 
                 for loop_count in range(self.max_feedback_loops + self.max_tool_uses_per_task):
                     rag_decision_data = self.rag_agent.execute(task.ssv_description, experts)
@@ -287,11 +294,14 @@ class HipleOrchestrator:
                         tool_url = response_dict.get("tool_url", "")
                         self.workspace.add_thought("generator_agent", "tool_request", {"tool_name": tool_name, "tool_query": tool_query})
                         
+                        start_time_tool = time.time()
                         tool_result = self.tool_manager.execute_tool(tool_name, tool_query, tool_url, experts)
+                        execution_time += time.time() - start_time_tool
+
                         self.workspace.add_thought("tool_manager", "tool_result", {"tool_name": tool_name, "result_length": len(tool_result)})
                         
-                        task_context["tool_results"] = tool_result
-                        continue
+                        task.result = tool_result
+                        break
 
                     generated_output = response_dict.get("result", "")
 
@@ -301,9 +311,7 @@ class HipleOrchestrator:
                             self.workspace.add_thought("orchestrator", "review_start", {"task_id": task.task_id, "reviewer": reviewer.name})
                             feedback_data = self.reviewer_agent.execute(task, generated_output, reviewer, expert)
                             feedback = feedback_data.get("response", "")
-                            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                             if not feedback.startswith("承認します。"):
-                            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                                 self.workspace.add_thought("reviewer_agent", "feedback_provided", {"task_id": task.task_id, "feedback": feedback})
                                 task.feedback_history.append({"reviewer": reviewer.name, "feedback": feedback})
                                 task_context["feedback"] = feedback

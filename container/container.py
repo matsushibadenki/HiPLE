@@ -11,6 +11,7 @@ from services.plan_evaluation_service import PlanEvaluationService
 from services.performance_tracker_service import PerformanceTrackerService
 from services.rag_manager_service import RAGManagerService
 from services.web_browser_service import WebBrowserService
+from services.wikipedia_service import WikipediaService
 from services.tool_manager_service import ToolManagerService
 from rag.retrievers import FaissRetriever
 from orchestrator.hiple_orchestrator import HipleOrchestrator
@@ -20,6 +21,7 @@ from agents.generator_agent import GeneratorAgent
 from agents.reporter_agent import ReporterAgent
 from agents.consultant_agent import ConsultantAgent
 from agents.wikipedia_agent import WikipediaAgent
+from agents.web_browser_agent import WebBrowserAgent
 from agents.rag_agent import RAGAgent
 from agents.reviewer_agent import ReviewerAgent
 from agents.critic_agent import CriticAgent
@@ -42,6 +44,7 @@ class Container(containers.DeclarativeContainer):
     performance_tracker = providers.Singleton(PerformanceTrackerService)
     worker_manager = providers.Singleton(WorkerManagerService)
     web_browser_service = providers.Singleton(WebBrowserService)
+    wikipedia_service = providers.Singleton(WikipediaService)
     plan_evaluation_service = providers.Singleton(PlanEvaluationService, vectorization_service=vectorization_service)
     faiss_retriever = providers.Factory(FaissRetriever, vectorization_service=vectorization_service)
     rag_manager = providers.Singleton(RAGManagerService, vectorization_service=vectorization_service)
@@ -59,7 +62,12 @@ class Container(containers.DeclarativeContainer):
         all_experts=model_manager.provided.get_all_experts.call()
     )
 
-    wikipedia_agent = providers.Factory(WikipediaAgent, model_loader=model_loader)
+    wikipedia_agent = providers.Factory(
+        WikipediaAgent, 
+        model_loader=model_loader, 
+        wikipedia_service=wikipedia_service
+    )
+    web_browser_agent = providers.Factory(WebBrowserAgent, model_loader=model_loader)
     planner_agent = providers.Factory(PlannerAgent, model_loader=model_loader)
     critic_agent = providers.Factory(CriticAgent, model_loader=model_loader)
     consultant_agent = providers.Factory(ConsultantAgent, model_loader=model_loader)
@@ -69,9 +77,11 @@ class Container(containers.DeclarativeContainer):
     reviewer_agent = providers.Factory(ReviewerAgent, model_loader=model_loader)
     emergence_agent = providers.Factory(EmergenceAgent, model_loader=model_loader)
     
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     tool_manager = providers.Singleton(
         ToolManagerService,
         wikipedia_agent=wikipedia_agent,
+        web_browser_agent=web_browser_agent,
         web_browser_service=web_browser_service,
     )
 
@@ -97,3 +107,4 @@ class Container(containers.DeclarativeContainer):
         evolution_service=evolution_service,
         emergence_agent=emergence_agent
     )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️

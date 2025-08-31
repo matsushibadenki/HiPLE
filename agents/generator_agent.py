@@ -27,6 +27,7 @@ class GeneratorAgent(BaseAgent):
 
     def execute(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any], all_experts: List[ExpertModel]) -> Dict[str, Any]:
         
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         # Step 1: Check for tool use instruction ONLY if tool results are not yet available in the context
         if not context.get("tool_results"):
             tool_match = re.search(r"ツール\s*`([^`]+)`\s*を使って「([^」]+)」", task.description)
@@ -78,7 +79,29 @@ class GeneratorAgent(BaseAgent):
         raw_response = response_data.get("response", "")
         task.self_evaluation = response_data.get("self_evaluation")
         
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        # If the LLM asks to use a tool, return that as a special status
+        tool_use_match = re.search(r'"tool_use"\s*:', raw_response, re.IGNORECASE)
+        if tool_use_match:
+            try:
+                # Extract the JSON part for tool use
+                json_part = raw_response[raw_response.find('{'):raw_response.rfind('}')+1]
+                tool_data = json.loads(json_part)
+                tool_info = tool_data.get("tool_use")
+                if tool_info and "tool_name" in tool_info and "tool_query" in tool_info:
+                    print(f"🛠️ ツール利用要求を検知: {tool_info['tool_name']}('{tool_info['tool_query']}')")
+                    return {
+                        "status": "tool_request",
+                        "tool_name": tool_info["tool_name"],
+                        "tool_query": tool_info["tool_query"],
+                        "tool_url": tool_info.get("tool_url")
+                    }
+            except (json.JSONDecodeError, KeyError):
+                # Fall through to normal completion if JSON is malformed
+                pass
+
         return {"status": "completed", "result": raw_response.strip()}
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def _parse_self_evaluation_from_str(self, raw_str: str) -> Dict[str, Any]:
         """ 文字列から自己評価JSONをパースする """
@@ -193,4 +216,3 @@ class GeneratorAgent(BaseAgent):
             print(f"❌ {error_message}")
             traceback.print_exc()
             return error_message
-

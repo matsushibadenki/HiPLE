@@ -13,9 +13,9 @@ class WikipediaAgent(BaseAgent):
     """
     Wikipediaを検索し、結果をLLMで要約・整形して返すエージェント。
     """
-    def __init__(self, model_loader: ModelLoaderService):
+    def __init__(self, model_loader: ModelLoaderService, wikipedia_service: WikipediaService):
         super().__init__(model_loader)
-        self.wikipedia_service = WikipediaService(lang="ja")
+        self.wikipedia_service = wikipedia_service
 
     def execute(self, query: str, all_experts: List[ExpertModel]) -> str:
         """
@@ -45,7 +45,6 @@ class WikipediaAgent(BaseAgent):
 
         print(f"✍️ 取得した情報をHRMで整形・要約します...")
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         system_prompt = "あなたは、与えられたWikipediaの記事の抜粋を分析し、ユーザーの元の質問に対して、ステップバイステップで分かりやすく具体的な手順を説明する優秀な解説者です。"
         user_prompt = f"""以下のテキストは、Wikipediaの記事「{first_title}」からの抜粋です。
 この情報を基に、ユーザーからの最初の質問に直接回答する形で、簡潔で明瞭なサマリーを作成してください。
@@ -61,7 +60,6 @@ class WikipediaAgent(BaseAgent):
 # あなたのタスク
 上記の抜粋から、ユーザーの質問に答えるために必要な情報だけを抽出し、**具体的な材料と作り方の手順がわかるように**、箇条書きなどを用いて分かりやすい最終的な回答を生成してください。
 """
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         messages: List[ChatCompletionRequestMessage] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -76,13 +74,11 @@ class WikipediaAgent(BaseAgent):
         """
         ユーザーの質問文から、日本語Wikipediaの検索に最適な日本語のキーワードを抽出する。
         """
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         system_prompt = """あなたは、ユーザーの質問の核心を理解し、日本語の百科事典（Wikipedia）で調べるのに最も適した、具体的で短い「日本語の検索キーワード」を抽出する専門家です。
 例えば、「アイスの作り方」という質問であれば、「アイスクリーム 製造」や「氷菓」のような、製造方法や分類に関するキーワードが適切です。
 回答は、抽出したキーワード本体のみを含むようにしてください。余計な説明や挨拶、JSONの定型文は一切不要です。
 """
         user_prompt = f"以下の質問文から、日本語のWikipediaで検索するための最も的確なキーワードを一つだけ抽出してください:\n\n「{query}」"
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         messages: List[ChatCompletionRequestMessage] = [
             {"role": "system", "content": system_prompt},
@@ -91,12 +87,10 @@ class WikipediaAgent(BaseAgent):
 
         response_data = self._query_llm(expert, messages)
         
-        # LLMが自己評価のJSON構造を返してしまった場合でも、キーワード本体を抽出する
         response_text = response_data.get("response", "")
         if isinstance(response_text, dict):
             response_text = response_text.get("keyword", "") or str(response_text)
 
-        # 不要な引用符や装飾を削除
         cleaned_term = response_text.strip().replace('"', '').replace("'", "").replace("`", "")
         response_data["response"] = cleaned_term
         return response_data

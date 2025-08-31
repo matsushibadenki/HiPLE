@@ -2,8 +2,13 @@
 # title: Tool Manager Service
 # description: A centralized service for registering and executing available tools.
 
+import traceback
 from typing import Dict, Any, List, cast
+
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from agents.wikipedia_agent import WikipediaAgent
+from agents.web_browser_agent import WebBrowserAgent
+# ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 from services.web_browser_service import WebBrowserService
 from domain.schemas import ExpertModel
 import googlesearch
@@ -12,17 +17,22 @@ class ToolManagerService:
     """
     システムで利用可能なツールを登録し、実行を管理するサービス。
     """
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     def __init__(
         self,
         wikipedia_agent: WikipediaAgent,
+        web_browser_agent: WebBrowserAgent,
         web_browser_service: WebBrowserService
     ):
         self.web_browser_service = web_browser_service
+        self.wikipedia_agent = wikipedia_agent
+        self.web_browser_agent = web_browser_agent
         self.tools: Dict[str, Any] = {
-            "wikipedia_search": wikipedia_agent,
-            "web_search": self.web_browser_service,
+            "wikipedia_search": self.wikipedia_agent,
+            "web_search": self.web_browser_agent,
         }
         print(f"🛠️ ToolManagerServiceが初期化され、{list(self.tools.keys())} が登録されました。")
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
     def get_tool_descriptions(self) -> str:
         """
@@ -41,7 +51,8 @@ class ToolManagerService:
         print(f"🔧 ツール '{tool_name}' を実行します。Query: '{query}'")
         try:
             if tool_name == "wikipedia_search":
-                return cast(str, self.tools[tool_name].execute(query, experts))
+                return self.tools[tool_name].execute(query, experts)
+            
             elif tool_name == "web_search":
                 if not url:
                     print(f"🔍 URLが指定されていないため、Googleで '{query}' を検索します...")
@@ -54,9 +65,15 @@ class ToolManagerService:
                     except Exception as e:
                         return f"エラー: Google検索中にエラーが発生しました - {e}"
                 
-                # エージェントを介さず、Webブラウザサービスから直接コンテンツを返す
-                return self.tools[tool_name].get_page_content(url)
+                page_content = self.web_browser_service.get_page_content(url)
+                if "エラー:" in page_content:
+                    return page_content
+                
+                # エージェントにコンテンツ処理を委任
+                return self.tools[tool_name].execute(page_content, query, experts)
+            
             else:
                 return f"エラー: ツール '{tool_name}' の実行ロジックが定義されていません。"
         except Exception as e:
+            traceback.print_exc()
             return f"エラー: ツール '{tool_name}' の実行中に問題が発生しました - {e}"
