@@ -1,6 +1,6 @@
 # path: ./agents/web_browser_agent.py
-# title: Web Browser Text Extractor
-# description: Extracts relevant text from HTML content without using an LLM.
+# title: Web Browser Agent (LLM-Free Text Extractor)
+# description: Extracts relevant text from HTML content without using an LLM, improving stability and focus.
 
 from bs4 import BeautifulSoup, NavigableString
 import re

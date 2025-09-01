@@ -1,6 +1,6 @@
 # path: ./agents/generator_agent.py
-# title: GeneratorAgent with Self-Evaluation Handling
-# description: エキスパートの応答と自己評価を受け取り、タスクオブジェクトに記録する。
+# title: GeneratorAgent with Self-Correction, Tool-Use, and Debug Logging
+# description: エキスパートの応答と自己評価を受け取り、タスクオブジェクトに記録する。また、自律的にツール利用を判断し要求する。デバッグ用のログ出力機能を含む。
 
 import os
 import uuid
@@ -27,27 +27,13 @@ class GeneratorAgent(BaseAgent):
 
     def execute(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any], all_experts: List[ExpertModel]) -> Dict[str, Any]:
         
-        # Step 1: Check for tool use instruction ONLY if tool results are not yet available in the context
-        if not context.get("tool_results"):
-            tool_match = re.search(r"ツール\s*`([^`]+)`\s*を使って「([^」]+)」", task.description)
-            if tool_match:
-                tool_name = tool_match.group(1).strip()
-                tool_query = tool_match.group(2).strip()
-                print(f"🛠️ ツール利用要求を計画から直接検知: {tool_name}('{tool_query}')")
-                return {
-                    "status": "tool_request",
-                    "tool_name": tool_name,
-                    "tool_query": tool_query,
-                    "tool_url": None # Planner doesn't specify URL, ToolManager will handle it
-                }
-        
-        # Step 2: Handle image generation if it's a diffusion model
+        # Step 1: Handle image generation if it's a diffusion model
         if expert.chat_format == "diffusion":
             result = self._generate_image(expert, task.description)
             task.self_evaluation = {"confidence": 0.9, "reasoning": "Image generated."}
             return {"status": "completed", "result": result}
         
-        # Step 3: Handle normal text generation tasks (now with potential tool results in context)
+        # Step 2: Handle normal text generation tasks
         consultation_feedback = ""
         if task.consultation_experts:
             consultation_result = self.consultant_agent.execute(
@@ -59,46 +45,52 @@ class GeneratorAgent(BaseAgent):
         
         messages = self._build_messages_with_context(task, expert, context, consultation_feedback)
         
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+        print(f"\n[GeneratorAgent] 📝 LLMに送信するメッセージ (担当: {expert.name}):")
+        for i, msg in enumerate(messages):
+            print(f"  - Message {i+1} Role: {msg['role']}")
+            content_preview = str(msg['content']).replace('\n', ' ').strip()
+            print(f"    Content (Preview): {content_preview[:400]}...")
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+
         response_data: Dict[str, Any] = {}
         try:
             if expert.execution_strategy == "worker":
                 response_dict_from_worker = self.worker_manager.invoke_llm_worker(expert, messages)
                 raw_response_str = response_dict_from_worker.get("choices", [{}])[0].get("message", {}).get("content", "")
                 try:
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                    print(f"\n[GeneratorAgent] 🤖 Worker LLMからの生応答 (担当: {expert.name}):\n---\n{raw_response_str}\n---")
+                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                     parsed_data = self._parse_self_evaluation_from_str(raw_response_str)
                     response_data = parsed_data
                 except (json.JSONDecodeError, KeyError):
                     response_data = {"response": raw_response_str, "self_evaluation": {"confidence": 0.75, "reasoning": "Evaluation from worker could not be parsed."}}
             else:
                 response_data = self._query_llm(expert, messages)
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                print(f"\n[GeneratorAgent] 🤖 LLMからの生応答 (担当: {expert.name}):\n---\n{response_data}\n---")
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         except WorkerExecutionError as e:
             print(f"❌ ワーカーの実行に失敗しました: {e}")
             return {"status": "failed", "result": f"エキスパート '{expert.name}' の実行中にエラーが発生しました。"}
 
         raw_response = response_data.get("response", "")
         task.self_evaluation = response_data.get("self_evaluation")
-        
-        # If the LLM asks to use a tool, return that as a special status
-        tool_use_match = re.search(r'"tool_use"\s*:', raw_response, re.IGNORECASE)
-        if tool_use_match:
-            try:
-                # Extract the JSON part for tool use
-                json_part = raw_response[raw_response.find('{'):raw_response.rfind('}')+1]
-                tool_data = json.loads(json_part)
-                tool_info = tool_data.get("tool_use")
-                if tool_info and "tool_name" in tool_info and "tool_query" in tool_info:
-                    print(f"🛠️ ツール利用要求を検知: {tool_info['tool_name']}('{tool_info['tool_query']}')")
-                    return {
-                        "status": "tool_request",
-                        "tool_name": tool_info["tool_name"],
-                        "tool_query": tool_info["tool_query"],
-                        "tool_url": tool_info.get("tool_url")
-                    }
-            except (json.JSONDecodeError, KeyError):
-                # Fall through to normal completion if JSON is malformed
-                pass
 
-        return {"status": "completed", "result": raw_response.strip()}
+        if isinstance(raw_response, dict) and "tool_use" in raw_response:
+            tool_info = raw_response["tool_use"]
+            if isinstance(tool_info, dict) and "tool_name" in tool_info and "tool_query" in tool_info:
+                print(f"🛠️ ツール利用要求を検知: {tool_info['tool_name']}('{tool_info['tool_query']}')")
+                return {
+                    "status": "tool_request",
+                    "tool_name": tool_info["tool_name"],
+                    "tool_query": tool_info["tool_query"],
+                    "tool_url": tool_info.get("tool_url")
+                }
+
+        result_str = str(raw_response) if isinstance(raw_response, dict) else raw_response
+        return {"status": "completed", "result": result_str.strip()}
 
     def _parse_self_evaluation_from_str(self, raw_str: str) -> Dict[str, Any]:
         """ 文字列から自己評価JSONをパースする """
@@ -135,7 +127,6 @@ class GeneratorAgent(BaseAgent):
         tool_results = context.get("tool_results", "")
         feedback = task.feedback_history[-1].get("feedback") if task.feedback_history else ""
 
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         if tool_results:
             main_instruction = """# あなたのタスク (L3)
 先行タスクによって、以下の「ツールからの情報」が収集されました。
@@ -144,8 +135,26 @@ class GeneratorAgent(BaseAgent):
         else:
             main_instruction = """# あなたのタスク (L3)
 以上の全てのコンテキスト情報を踏まえ、以下のタスクを実行してください。
+
+**【最重要】**
+**もし、このタスクを達成するために外部情報（Web検索やWikipedia）が必要だと判断した場合**、他の応答は一切せず、必ず以下のJSON形式のみを出力してください。
+
+```json
+{
+  "response": {
+    "tool_use": {
+      "tool_name": "（'web_search'または'wikipedia_search'）",
+      "tool_query": "（検索や実行のための最も具体的で効果的なキーワードや質問）"
+    }
+  },
+  "self_evaluation": {
+    "confidence": 1.0,
+    "reasoning": "This task requires external information that can be obtained by using a tool."
+  }
+}
+```
+**ツールが不要な場合にのみ**、通常の応答と自己評価を生成してください。
 """
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         user_prompt = f"""# 全体目標 (L1)
 {context.get('overall_goal', 'N/A')}
@@ -205,3 +214,4 @@ class GeneratorAgent(BaseAgent):
             print(f"❌ {error_message}")
             traceback.print_exc()
             return error_message
+
