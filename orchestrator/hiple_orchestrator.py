@@ -1,6 +1,6 @@
 # path: ./orchestrator/hiple_orchestrator.py
-# title: Orchestrator with Direct Tool Result Handling
-# description: Handles tool execution results as the direct outcome of a task, improving stability.
+# title: Orchestrator with Direct Tool Result Handling and Debug Logging
+# description: Handles tool execution results as the direct outcome of a task, improving stability, and adds verbose logging for easier debugging.
 
 import time
 import traceback
@@ -235,7 +235,6 @@ class HipleOrchestrator:
         completed_tasks: Dict[int, SubTask] = {}
         worker_tasks = [t for t in plan.tasks if t.expert_name.lower() != 'reporter']
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         task_context_storage: Dict[int, Dict[str, Any]] = defaultdict(dict)
         
         while len(completed_tasks) < len(worker_tasks):
@@ -257,6 +256,7 @@ class HipleOrchestrator:
                 break
 
             for task in executable_tasks:
+                print(f"\n[Orchestrator] ▶️ タスク {task.task_id} を実行します: '{task.description}' (担当: {task.expert_name})")
                 expert = self.model_manager.get_expert(task.expert_name)
                 if not expert:
                     task.result = f"エラー: エキスパート '{task.expert_name}' が見つかりませんでした。"
@@ -268,7 +268,9 @@ class HipleOrchestrator:
                 execution_time = 0.0
                 task_context = task_context_storage[task.task_id]
                 
-                for loop_count in range(self.max_feedback_loops + 1):
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # A task can have multiple tool uses and then a final generation, so we loop
+                for loop_count in range(self.max_tool_uses_per_task + self.max_feedback_loops):
                     rag_decision_data = self.rag_agent.execute(task.ssv_description, experts)
                     rag_decision = cast(Dict[str, Any], rag_decision_data.get("response", {}))
                     rag_results: List[Document] = []
@@ -298,8 +300,8 @@ class HipleOrchestrator:
 
                         self.workspace.add_thought("tool_manager", "tool_result", {"tool_name": tool_name, "result_length": len(tool_result)})
                         
-                        # ツール利用タスクの場合、その結果がタスクの最終成果物となる
                         task.result = tool_result
+                        print(f"[Orchestrator] 🔧 タスク {task.task_id} がツール '{tool_name}' を使用し、結果をタスクの成果物として設定しました。")
                         break
 
                     generated_output = response_dict.get("result", "")
@@ -315,17 +317,25 @@ class HipleOrchestrator:
                                 task.feedback_history.append({"reviewer": reviewer.name, "feedback": feedback})
                                 task_context["feedback"] = feedback
                                 continue
-                            self.workspace.add_thought("reviewer_agent", "review_passed", {"task_id": task.task_id})
                     
                     task.result = generated_output
                     break
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 
                 success = task.result is not None and task.result.strip() != "" and "エラー" not in task.result
                 self.performance_tracker.update_performance(expert.name, execution_time, success)
 
                 task.status = "completed" if success else "failed"
                 completed_tasks[task.task_id] = task
+                
+                status_icon = "✅" if success else "❌"
+                print(f"[Orchestrator] {status_icon} タスク {task.task_id} が完了しました。ステータス: {task.status}")
+                if success:
+                    result_preview = (task.result or "").strip().replace("\n", " ")[:150]
+                    print(f"  - 結果のプレビュー: {result_preview}...")
+                else:
+                    print(f"  - エラー内容: {task.result}")
+
                 self.workspace.add_thought(
                     "orchestrator", 
                     "task_completed", 
@@ -398,3 +408,4 @@ class HipleOrchestrator:
             "dependency_results": "",
             "rag_results": []
         }
+

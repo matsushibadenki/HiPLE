@@ -27,13 +27,26 @@ class GeneratorAgent(BaseAgent):
 
     def execute(self, task: SubTask, expert: ExpertModel, context: Dict[str, Any], all_experts: List[ExpertModel]) -> Dict[str, Any]:
         
-        # Step 1: Handle image generation if it's a diffusion model
+        # Step 1: Plannerからの明示的なツール利用指示をチェック
+        tool_match = re.search(r"ツール\s*`([^`]+)`\s*を使って「([^」]+)」", task.description)
+        if tool_match:
+            tool_name = tool_match.group(1).strip()
+            tool_query = tool_match.group(2).strip()
+            print(f"🛠️ 計画からの明示的なツール利用要求を検知: {tool_name}('{tool_query}')")
+            return {
+                "status": "tool_request",
+                "tool_name": tool_name,
+                "tool_query": tool_query,
+                "tool_url": None 
+            }
+
+        # Step 2: Handle image generation if it's a diffusion model
         if expert.chat_format == "diffusion":
             result = self._generate_image(expert, task.description)
             task.self_evaluation = {"confidence": 0.9, "reasoning": "Image generated."}
             return {"status": "completed", "result": result}
         
-        # Step 2: Handle normal text generation tasks
+        # Step 3: Handle normal text generation tasks
         consultation_feedback = ""
         if task.consultation_experts:
             consultation_result = self.consultant_agent.execute(
@@ -45,32 +58,26 @@ class GeneratorAgent(BaseAgent):
         
         messages = self._build_messages_with_context(task, expert, context, consultation_feedback)
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         print(f"\n[GeneratorAgent] 📝 LLMに送信するメッセージ (担当: {expert.name}):")
         for i, msg in enumerate(messages):
             print(f"  - Message {i+1} Role: {msg['role']}")
             content_preview = str(msg['content']).replace('\n', ' ').strip()
             print(f"    Content (Preview): {content_preview[:400]}...")
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
 
         response_data: Dict[str, Any] = {}
         try:
             if expert.execution_strategy == "worker":
                 response_dict_from_worker = self.worker_manager.invoke_llm_worker(expert, messages)
                 raw_response_str = response_dict_from_worker.get("choices", [{}])[0].get("message", {}).get("content", "")
+                print(f"\n[GeneratorAgent] 🤖 Worker LLMからの生応答 (担当: {expert.name}):\n---\n{raw_response_str}\n---")
                 try:
-                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-                    print(f"\n[GeneratorAgent] 🤖 Worker LLMからの生応答 (担当: {expert.name}):\n---\n{raw_response_str}\n---")
-                    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                     parsed_data = self._parse_self_evaluation_from_str(raw_response_str)
                     response_data = parsed_data
                 except (json.JSONDecodeError, KeyError):
                     response_data = {"response": raw_response_str, "self_evaluation": {"confidence": 0.75, "reasoning": "Evaluation from worker could not be parsed."}}
             else:
                 response_data = self._query_llm(expert, messages)
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                 print(f"\n[GeneratorAgent] 🤖 LLMからの生応答 (担当: {expert.name}):\n---\n{response_data}\n---")
-                # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         except WorkerExecutionError as e:
             print(f"❌ ワーカーの実行に失敗しました: {e}")
             return {"status": "failed", "result": f"エキスパート '{expert.name}' の実行中にエラーが発生しました。"}
@@ -133,7 +140,8 @@ class GeneratorAgent(BaseAgent):
 この情報を基に、以下のタスク詳細を達成するための応答を生成してください。
 """
         else:
-            main_instruction = """# あなたのタスク (L3)
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+            main_instruction = r"""# あなたのタスク (L3)
 以上の全てのコンテキスト情報を踏まえ、以下のタスクを実行してください。
 
 **【最重要】**
@@ -155,6 +163,7 @@ class GeneratorAgent(BaseAgent):
 ```
 **ツールが不要な場合にのみ**、通常の応答と自己評価を生成してください。
 """
+            # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         user_prompt = f"""# 全体目標 (L1)
 {context.get('overall_goal', 'N/A')}
@@ -214,4 +223,3 @@ class GeneratorAgent(BaseAgent):
             print(f"❌ {error_message}")
             traceback.print_exc()
             return error_message
-

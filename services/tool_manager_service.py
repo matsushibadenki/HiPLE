@@ -56,7 +56,10 @@ class ToolManagerService:
                 if not url:
                     print(f"🔍 URLが指定されていないため、Googleで '{query}' を検索します...")
                     try:
-                        search_results = list(googlesearch.search(query, num=1, stop=1, pause=2))
+                        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+                        # 互換性のない可能性のある引数をすべて削除し、最も基本的な呼び出し形式にします。
+                        search_results = list(googlesearch.search(query))
+                        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
                         if not search_results:
                             return f"エラー: '{query}' に関連するWebページが見つかりませんでした。"
                         url = search_results[0]
@@ -71,6 +74,7 @@ class ToolManagerService:
                 if "エラー:" in page_content:
                     return page_content
                 
+                # web_browser_agentはLLMを使用しないため、experts引数は不要です。
                 return self.tools[tool_name].execute(page_content, query)
             
             else:
