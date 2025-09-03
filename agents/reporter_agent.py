@@ -14,7 +14,6 @@ class ReporterAgent(BaseAgent):
     def execute(self, plan: Plan, experts: List[ExpertModel]) -> str:
         reporter_expert = self._find_reporter_expert(experts)
         
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         context = self._build_context(plan)
         prompt = self._build_final_prompt(plan.original_prompt, context)
         
@@ -22,9 +21,9 @@ class ReporterAgent(BaseAgent):
             {"role": "system", "content": reporter_expert.system_prompt},
             {"role": "user", "content": prompt}
         ]
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
-        return self._query_llm(reporter_expert, messages)
+        response_data = self._query_llm(reporter_expert, messages)
+        return response_data.get("response", "最終報告書の生成に失敗しました。")
 
     def _find_reporter_expert(self, experts: List[ExpertModel]) -> ExpertModel:
         """レポーター役のエキスパートを見つける"""
@@ -41,16 +40,17 @@ class ReporterAgent(BaseAgent):
         """レポーターに渡すための、全タスクの結果をまとめたコンテキストを構築する"""
         context = f"# 最終目標: {plan.overall_goal}\n\n# 各エキスパートからの報告サマリー\n---\n"
         # 実行順にタスクをソート
-        sorted_tasks = sorted([t for t in plan.tasks if t.status == "completed" and t.expert_name.lower() != 'reporter'], key=lambda t: t.task_id)
+        sorted_tasks = sorted([t for t in plan.tasks if t.status in ["completed", "failed"] and t.expert_name.lower() != 'reporter'], key=lambda t: t.task_id)
         
         for task in sorted_tasks:
-            context += f"## タスク {task.task_id}: {task.description} (担当: {task.expert_name})\n"
+            context += f"## タスク {task.task_id}: {task.description} (担当: {task.expert_name}, ステータス: {task.status})\n"
             context += f"**結果:**\n{task.result}\n\n"
         context += "---\n"
         return context
 
     def _build_final_prompt(self, original_prompt: str, context: str) -> str:
         """最終的な指示を生成するための、明確で強力なプロンプトを構築する"""
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return f"""\
 あなたは、複数のAIエキスパートからの報告を統合し、最終的な一つの回答を作成する、極めて優秀なチーフエディターです。
 
@@ -63,8 +63,10 @@ class ReporterAgent(BaseAgent):
 「{original_prompt}」
 
 # 厳守すべきルール
-1.  **言語の厳守:** 回答は、必ず「元の要求」と同じ言語（この場合は日本語）で記述してください。
-2.  **内容の統合:** 単なる報告の連結ではなく、全ての情報を統合・要約し、首尾一貫した一つの文章に再構成してください。
-3.  **目的の遵守:** あなたの唯一の目的は、「元の要求」に答えることです。報告サマリーにない情報は、決して含めないでください。
-4.  **形式:** 最終的な回答のみを出力してください。思考過程や挨拶などは一切不要です。
+1.  **品質第一**: あなたの唯一の目的は、ユーザーの「元の要求」に高品質で役立つ回答をすることです。
+2.  **成功時の対応**: サマリー内のタスクがすべて成功（`status: completed`）している場合、その内容を統合・要約し、首尾一貫した一つの文章に再構成してください。
+3.  **失敗時の対応 (最重要)**: サマリー内に一つでも失敗したタスク（`status: failed`）が含まれている場合、**決してポジティブな回答を作成しようとしないでください**。代わりに、「申し訳ありませんが、シチューの作り方の調査中に問題が発生しました。」のように述べ、失敗したタスクの「結果」に含まれるエラーメッセージをユーザーに分かりやすく伝えてください。
+4.  **言語の厳守:** 回答は、必ず「元の要求」と同じ言語（この場合は日本語）で記述してください。
+5.  **形式:** 最終的な回答のみを出力してください。思考過程や挨拶などは一切不要です。
 """
+        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️

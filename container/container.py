@@ -68,8 +68,11 @@ class Container(containers.DeclarativeContainer):
         wikipedia_service=wikipedia_service
     )
     # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
-    web_browser_agent = providers.Factory(WebBrowserAgent) # model_loader is no longer needed
-    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
+    web_browser_agent = providers.Factory(
+        WebBrowserAgent,
+        model_loader=model_loader
+    )
+    # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
     planner_agent = providers.Factory(PlannerAgent, model_loader=model_loader)
     critic_agent = providers.Factory(CriticAgent, model_loader=model_loader)
     consultant_agent = providers.Factory(ConsultantAgent, model_loader=model_loader)
@@ -108,3 +111,4 @@ class Container(containers.DeclarativeContainer):
         evolution_service=evolution_service,
         emergence_agent=emergence_agent
     )
+

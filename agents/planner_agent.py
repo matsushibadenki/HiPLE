@@ -63,7 +63,6 @@ class PlannerAgent(BaseAgent):
 # 利用可能なエキスパート (タスクの担当者)
 {expert_descriptions}
 """
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         judgement_criteria = """
 # 判断基準 (最重要)
 1.  **ツール利用タスクの計画**: ユーザーの要求が外部情報の調査を必要とする場合、`description`に**必ず** `ツール `[ツール名]` を使って「[検索クエリ]」` という形式で記述してください。
@@ -73,7 +72,6 @@ class PlannerAgent(BaseAgent):
 3.  **エキスパートの選定**: `expert_name`には、必ず上記の「利用可能なエキスパート」リストに存在する名前を指定します。ツール名は指定できません。
 4.  **性能・速度・コスト**: `performance_summary`を参考に、タスク内容に最も適したエキスパートを選択します。
 """
-        # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         
         performance_section = f"""
 # エキスパートのパフォーマンス実績 (参考情報)
@@ -156,45 +154,47 @@ class PlannerAgent(BaseAgent):
         )
 
     def _format_expert_descriptions(self, experts: List[ExpertModel]) -> str:
+        # Reporterは内部的な役割なので、プランナーには見せない
         return "\n".join(
             [f"- **{e.name}**: {e.description} (Cost: {e.cost_score}/10, Speed: {e.speed_score}/10)" 
-             for e in experts if e.name.lower() != "reporter"]
+             for e in experts if e.name.lower() not in ["reporter", "hrm"]]
         )
 
     def _get_json_format_section(self) -> str:
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↓修正開始◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
         return r"""
 # JSON出力フォーマット (厳守)
+# より効率的な2ステップの計画例
 {
     "response": {
-        "overall_goal": "家庭で簡単に作れるアイスの作り方をユーザーに教える",
+        "overall_goal": "家庭で簡単に作れる餃子の作り方をユーザーに教える",
         "milestones": [
             {
                 "milestone_id": 1,
-                "title": "レシピ調査と報告",
-                "description": "Webで簡単なアイスクリームのレシピを調査し、分かりやすくまとめて報告する"
+                "title": "レシピ調査と報告書作成",
+                "description": "Webで簡単な餃子のレシピを調査し、分かりやすい報告書を作成する"
             }
         ],
         "tasks": [
             {
                 "task_id": 1,
                 "milestone_id": 1,
-                "description": "ツール `web_search` を使って「アイスクリーム 簡単 レシピ」を調査する",
+                "description": "ツール `web_search` を使って「餃子 簡単 レシピ 初心者」を調査する",
                 "expert_name": "Jamba",
-                "ssv_description": "アイスクリームの作り方に関する情報を収集する",
+                "ssv_description": "Webから餃子のレシピ情報を抽出し、要点をまとめる",
                 "dependencies": []
             },
             {
                 "task_id": 2,
                 "milestone_id": 1,
-                "description": "先行タスクの結果から最も簡単なレシピを1つ選び、手順を箇条書きで分かりやすく要約する",
-                "expert_name": "Jamba",
-                "ssv_description": "収集した情報から、簡単で分かりやすいレシピを要約する",
+                "description": "先行タスクで抽出されたレシピ情報を元に、最終的な回答として丁寧な文章で報告書を作成する",
+                "expert_name": "Reporter",
+                "ssv_description": "ユーザーに提示するための最終的な報告書を作成する",
                 "dependencies": [1]
             }
         ]
     },
-    "self_evaluation": { "confidence": 0.95, "reasoning": "This is a standard information retrieval and summarization task, best handled in two distinct steps." }
+    "self_evaluation": { "confidence": 0.95, "reasoning": "This is a standard information retrieval and reporting task, best handled in two distinct steps to ensure quality." }
 }
 """
         # ◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️↑修正終わり◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️◾️
@@ -206,6 +206,7 @@ class PlannerAgent(BaseAgent):
 - **依存関係**: `dependencies`には、先行するタスクの`task_id`を**数値の配列**として`[1, 2]`のように指定します。
 - **担当者**: `expert_name` と `consultation_experts` には、必ずエキスパートリストの名前を指定してください。ツール名は指定できません。
 - **レビュー担当**: `reviewer_expert`は、文章生成やコーディングなど、**品質が問われるタスクにのみ**設定してください。単純な情報検索タスクには`null`を設定してください。
-- **報告タスク**: 複雑な要求の場合、最後に'Reporter'を配置し、最終報告書を作成させてください。
+- **報告タスク**: 複数のタスクで構成される複雑な計画の場合、**必ず最後に'Reporter'を担当者とするタスクを配置**し、それまでのタスクの結果を統合して最終的な回答を作成させてください。
 - **単純な要求**: 単純な挨拶や質問の場合、マイルストーンは1つ、タスクも1つだけ生成します。
 """
+
